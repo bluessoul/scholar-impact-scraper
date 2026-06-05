@@ -17,6 +17,7 @@ const options = {
   profile: 'JCR Scraper', // Changed default to 'JCR Scraper'
   output: 'jcr_results.md',
   timeout: 30000,
+  skipOfflineReminder: false,
 };
 
 for (let i = 0; i < args.length; i++) {
@@ -41,6 +42,8 @@ for (let i = 0; i < args.length; i++) {
   } else if (args[i] === '--timeout' && args[i + 1]) {
     options.timeout = parseInt(args[i + 1], 10);
     i++;
+  } else if (args[i] === '--skip-offline-reminder' || args[i] === '--use-live-jcr') {
+    options.skipOfflineReminder = true;
   }
 }
 
@@ -53,6 +56,72 @@ if (!options.chromeData && process.env.LOCALAPPDATA) {
 // Adapted for QClaw: Output to workspace root for easy access
 const workspaceRoot = process.cwd();
 const verificationArtifactPath = path.join(workspaceRoot, 'captcha_verification.md');
+const jcrOfflineReminderPath = path.join(workspaceRoot, 'JCR_OFFLINE_DATA_OPTION.md');
+
+function writeJcrOfflineReminderArtifact() {
+  const content = `# JCR 2024 Offline Data Option\n\n` +
+    `Before launching Playwright for live Clarivate/JCR lookup, you may be able to save time by using a local JCR 2024 quartile raw-data file.\n\n` +
+    `Suggested workflow:\n\n` +
+    `1. Search the web yourself for a publicly shared JCR 2024 quartile/partition raw-data file.\n` +
+    `2. Verify that the source allows your intended use and redistribution, if any.\n` +
+    `3. Place the local file under \`data/jcr2024/\` or another local path.\n` +
+    `4. Do not commit the raw data file unless redistribution is clearly allowed.\n\n` +
+    `If you do not want to use an offline file, continue with live lookup. The script will open a Playwright browser and use your authorized Clarivate/JCR access.\n\n` +
+    `To skip this reminder in automation, pass \`--skip-offline-reminder\` or set \`JCR_SKIP_OFFLINE_REMINDER=1\`.\n\n` +
+    `Timestamp: ${new Date().toLocaleString()}\n`;
+
+  try {
+    fs.writeFileSync(jcrOfflineReminderPath, content, 'utf8');
+    console.log(`[JCR Offline Option] Reminder artifact written to: ${jcrOfflineReminderPath}`);
+  } catch (err) {
+    console.error('[JCR Offline Option] Failed to write reminder artifact:', err.message);
+  }
+}
+
+async function promptJcrOfflineDataOption() {
+  if (options.skipOfflineReminder || process.env.JCR_SKIP_OFFLINE_REMINDER === '1') {
+    return true;
+  }
+
+  console.log('\n' + '='.repeat(80));
+  console.log('[JCR Offline Data Option]');
+  console.log('You may save time by using a local JCR 2024 quartile/partition raw-data file.');
+  console.log('Search the web yourself for a publicly shared JCR 2024 file, verify permission,');
+  console.log('then place it under data/jcr2024/ or another local path.');
+  console.log('');
+  console.log('If you choose live lookup, this script will continue with Playwright and your');
+  console.log('authorized Clarivate/JCR account. Live lookup does not bypass access control.');
+  console.log('='.repeat(80) + '\n');
+
+  writeJcrOfflineReminderArtifact();
+
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    console.log('[JCR Offline Option] Non-interactive terminal detected; continuing with live Playwright lookup.');
+    console.log('[JCR Offline Option] Use --skip-offline-reminder to suppress this message.\n');
+    return true;
+  }
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  const answer = await new Promise(resolve => {
+    rl.question('Do you want to pause now and use/find an offline JCR 2024 file? (y/N): ', resolve);
+  });
+  rl.close();
+
+  const normalized = String(answer || '').trim().toLowerCase();
+  if (normalized === 'y' || normalized === 'yes') {
+    console.log('\n[JCR Offline Option] Stopping before browser launch.');
+    console.log('[JCR Offline Option] Put your local JCR 2024 file under data/jcr2024/ or another local path.');
+    console.log('[JCR Offline Option] Re-run with --skip-offline-reminder when you want to proceed with live lookup.\n');
+    return false;
+  }
+
+  console.log('\n[JCR Offline Option] Continuing with live Playwright lookup.\n');
+  return true;
+}
 
 function writeVerificationArtifact() {
   // Console output - eye-catching alert for QClaw userr
@@ -1964,7 +2033,13 @@ async function startInteractiveConsole(page, context, options, results) {
     console.log('Usage 1 (Interactive): node fetch.js [--chrome-data <path>] [--profile <profile>]');
     console.log('Usage 2 (Single Input): node fetch.js --journal "1879-1069" --year 2026 [--chrome-data <path>]');
     console.log('Usage 3 (Batch File):  node fetch.js --input <input.json> [--chrome-data <path>]');
+    console.log('Optional: pass --skip-offline-reminder to skip the JCR 2024 offline-data prompt.');
     process.exit(1);
+  }
+
+  const shouldContinueLiveLookup = await promptJcrOfflineDataOption();
+  if (!shouldContinueLiveLookup) {
+    process.exit(0);
   }
 
   const hasFileInput = !!options.input;

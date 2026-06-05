@@ -31,6 +31,8 @@ venv/
 *.log
 *_results.md
 *_stats.json
+JCR_OFFLINE_DATA_OPTION.md
+captcha_verification.md
 
 # OS/editor
 .DS_Store

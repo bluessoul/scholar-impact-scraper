@@ -161,6 +161,8 @@ python launch_browser_for_login.py
 
 默认 public release 不附带完整的 JCR 2024 原始分区文件。原因是网上分享的数据文件可能有版权、数据库权利、平台条款或再分发限制。如果你只是本地使用，可以把自己的文件放在 `data/jcr2024/` 或其他本地路径中；如果你确实要把数据文件发布到 GitHub，请先确认来源允许公开再分发，并在 `data/jcr2024/README.md` 中记录来源、许可证、下载日期和校验信息。
 
+运行 JCR 脚本时，它会先主动提醒你可以寻找公开分享的 JCR 2024 分区原始文件来节省实时查询时间。如果你选择不使用离线文件，脚本会继续打开 Playwright 浏览器进行实时查询。自动化运行时可以添加 `--skip-offline-reminder` 跳过这个提醒。
+
 先准备输入文件。可以参考：
 
 ```text
@@ -182,6 +184,12 @@ examples/jcr_input.example.json
 
 ```bash
 npm run fetch -- --input examples/jcr_input.example.json --output jcr_results.md
+```
+
+自动化或无人值守运行时：
+
+```bash
+npm run fetch -- --input examples/jcr_input.example.json --output jcr_results.md --skip-offline-reminder
 ```
 
 如果你使用 Clarivate/JCR 自动登录，请只在本地 `.env` 或系统环境变量中配置：
@@ -384,6 +392,8 @@ Live lookup does not bypass access control. You still need to use an institution
 
 By default, the public release does not bundle the full JCR 2024 raw quartile file. Publicly shared data files may be subject to copyright, database rights, platform terms, or redistribution restrictions. For local-only use, place your own file under `data/jcr2024/` or another local path. If you decide to publish a data file to GitHub, first confirm that the source allows public redistribution and document the source, license, download date, and checksum in `data/jcr2024/README.md`.
 
+When the JCR script starts, it first reminds you that a publicly shared JCR 2024 quartile raw-data file may save live lookup time. If you choose not to use an offline file, the script continues with the Playwright browser workflow. For automated runs, pass `--skip-offline-reminder` to skip this prompt.
+
 Prepare an input file. See:
 
 ```text
@@ -405,6 +415,12 @@ Run:
 
 ```bash
 npm run fetch -- --input examples/jcr_input.example.json --output jcr_results.md
+```
+
+For automated or unattended runs:
+
+```bash
+npm run fetch -- --input examples/jcr_input.example.json --output jcr_results.md --skip-offline-reminder
 ```
 
 If you use Clarivate/JCR automatic login, configure credentials only through local `.env` or environment variables:
