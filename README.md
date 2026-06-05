@@ -22,6 +22,8 @@ This repository is designed to keep secrets outside Git:
 
 ## Install
 
+For a concise setup path, see `QUICKSTART.md`.
+
 Python dependencies:
 
 ```bash
@@ -117,3 +119,12 @@ python tests/test_orcid_extractor.py
 ## Compliance
 
 Use this tool only with accounts and subscriptions you are authorized to use. Respect service terms, rate limits, copyright restrictions, institutional policies, and privacy obligations.
+
+## Agentic IDEs
+
+This repository is designed to be friendly to multiple coding agents and agentic IDEs.
+
+- `SKILL.md` describes the reusable skill workflow.
+- `AGENTS.md` gives generic operating instructions for coding agents.
+- `CLAUDE.md` and `GEMINI.md` point other agent clients to the same rules.
+- `SECURITY.md` and `RELEASE_CHECKLIST.md` document secret-handling and release checks.

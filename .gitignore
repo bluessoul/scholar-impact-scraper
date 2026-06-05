@@ -22,6 +22,7 @@ venv/
 *.json
 !package.json
 !package-lock.json
+!examples/*.json
 *.html
 *.png
 *.jpg
