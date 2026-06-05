@@ -96,6 +96,24 @@ CLARIVATE_PASSWORD=your_password
 
 建议优先使用 `.env` 或系统环境变量。`config.json` 只适合本地临时使用，已经被 `.gitignore` 忽略，不能发布。
 
+## 首次运行：保存浏览器登录状态
+
+如果你要使用 Web of Science 或 Clarivate/JCR 的实时查询，建议第一次先通过登录助手保存本地浏览器会话：
+
+```bash
+python launch_browser_for_login.py
+```
+
+Windows 下也可以为 JCR 运行：
+
+```powershell
+.\launch_jcr_login.bat
+```
+
+在打开的浏览器中登录你有权使用的机构或个人账号，确认平台可访问后关闭浏览器。登录状态会保存在 `.playwright_profile/` 中。这个目录是敏感本地文件，不能提交或分享。
+
+如果你直接运行核心脚本但还没有 `.playwright_profile/`，脚本会在终端中提醒你先完成登录设置，并生成 `FIRST_RUN_LOGIN_SETUP.md` 给 Codex、Claude Code、OpenClaw 等客户端读取。该提醒文件已被 `.gitignore` 忽略。
+
 ## 先跑一个测试
 
 Windows:
@@ -326,6 +344,24 @@ CLARIVATE_PASSWORD=your_password
 ```
 
 Prefer `.env` or environment variables. `config.json` is supported only for local use, is ignored by Git, and must not be published.
+
+## First Run: Save Browser Login State
+
+If you plan to use live Web of Science or Clarivate/JCR lookup, it is recommended to save a local browser session first:
+
+```bash
+python launch_browser_for_login.py
+```
+
+On Windows, you can also run the JCR helper:
+
+```powershell
+.\launch_jcr_login.bat
+```
+
+Log in with an institutional or personal account that you are authorized to use, verify that the platform works, then close the browser. Login state is saved under `.playwright_profile/`. Treat this directory as sensitive and never commit or share it.
+
+If you run a core script before `.playwright_profile/` exists, the script will remind you in the terminal and create `FIRST_RUN_LOGIN_SETUP.md` for Codex, Claude Code, OpenClaw, or similar clients to read. This reminder file is ignored by Git.
 
 ## Run A Smoke Test
 

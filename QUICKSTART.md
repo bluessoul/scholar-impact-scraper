@@ -68,7 +68,23 @@ macOS/Linux:
 ./.venv/bin/python tests/test_orcid_extractor.py
 ```
 
-### 5. 运行 ORCID
+### 5. 首次运行：保存网页登录状态
+
+如果你要使用 Web of Science 或 JCR 实时查询，建议先运行登录助手：
+
+```bash
+python launch_browser_for_login.py
+```
+
+Windows 下的 JCR 登录助手：
+
+```powershell
+.\launch_jcr_login.bat
+```
+
+登录成功后关闭浏览器，状态会保存在 `.playwright_profile/`。不要提交或分享这个目录。核心脚本如果发现还没有 `.playwright_profile/`，会生成 `FIRST_RUN_LOGIN_SETUP.md` 提醒文件。
+
+### 6. 运行 ORCID
 
 Windows:
 
@@ -82,7 +98,7 @@ macOS/Linux:
 ./.venv/bin/python orcid_extractor.py
 ```
 
-### 6. 运行 JCR
+### 7. 运行 JCR
 
 JCR 有两种使用方式：一种是使用你自己准备的网上公开分享的 JCR 2024 分区原始文件作为离线参考；另一种是使用你自己的 Clarivate/JCR 合法账号，通过 Playwright 自动化浏览器登录网站查询实时信息。当前脚本默认打开可视化浏览器，便于处理登录和验证码；如果你的环境适合，也可以自行改成无头模式。默认 public release 不附带完整 JCR 2024 原始文件；本地文件可以放在 `data/jcr2024/`，但除非确认允许再分发，否则不要提交。
 
@@ -98,7 +114,7 @@ npm run fetch -- --input examples/jcr_input.example.json --output jcr_results.md
 
 `jcr_results.md` 是本地生成文件，分享前需要人工检查。
 
-### 7. 运行 Scholar/WoS
+### 8. 运行 Scholar/WoS
 
 ```bash
 python scholar_playwright.py --user-id <Scholar_ID> --wos-id <WoS_ID> --output output.csv --max-clicks 5
@@ -182,7 +198,23 @@ macOS/Linux:
 ./.venv/bin/python tests/test_orcid_extractor.py
 ```
 
-## 5. Run ORCID
+## 5. First Run: Save Web Login State
+
+If you plan to use live Web of Science or JCR lookup, run a login helper first:
+
+```bash
+python launch_browser_for_login.py
+```
+
+Windows JCR login helper:
+
+```powershell
+.\launch_jcr_login.bat
+```
+
+After login succeeds, close the browser. State is saved under `.playwright_profile/`. Do not commit or share that directory. If a core script detects that `.playwright_profile/` does not exist yet, it creates a `FIRST_RUN_LOGIN_SETUP.md` reminder file.
+
+## 6. Run ORCID
 
 Windows:
 
@@ -196,7 +228,7 @@ macOS/Linux:
 ./.venv/bin/python orcid_extractor.py
 ```
 
-## 6. Run JCR
+## 7. Run JCR
 
 There are two JCR usage paths: use your own publicly shared JCR 2024 quartile raw-data file as an offline reference, or use your authorized Clarivate/JCR account with a Playwright automated browser to query live information from the website. The current scripts default to a visible browser window for login and verification; you can adapt the browser mode to headless in your own environment if appropriate. The public release does not bundle the full JCR 2024 raw file by default; local files can be placed under `data/jcr2024/`, but should not be committed unless redistribution is clearly allowed.
 
@@ -212,7 +244,7 @@ npm run fetch -- --input examples/jcr_input.example.json --output jcr_results.md
 
 `jcr_results.md` is a generated local artifact and should be reviewed before sharing.
 
-## 7. Run Scholar/WoS
+## 8. Run Scholar/WoS
 
 ```bash
 python scholar_playwright.py --user-id <Scholar_ID> --wos-id <WoS_ID> --output output.csv --max-clicks 5

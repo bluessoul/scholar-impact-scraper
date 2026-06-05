@@ -18,6 +18,7 @@ const options = {
   output: 'jcr_results.md',
   timeout: 30000,
   skipOfflineReminder: false,
+  skipLoginReminder: false,
 };
 
 for (let i = 0; i < args.length; i++) {
@@ -44,6 +45,8 @@ for (let i = 0; i < args.length; i++) {
     i++;
   } else if (args[i] === '--skip-offline-reminder' || args[i] === '--use-live-jcr') {
     options.skipOfflineReminder = true;
+  } else if (args[i] === '--skip-login-reminder') {
+    options.skipLoginReminder = true;
   }
 }
 
@@ -57,6 +60,64 @@ if (!options.chromeData && process.env.LOCALAPPDATA) {
 const workspaceRoot = process.cwd();
 const verificationArtifactPath = path.join(workspaceRoot, 'captcha_verification.md');
 const jcrOfflineReminderPath = path.join(workspaceRoot, 'JCR_OFFLINE_DATA_OPTION.md');
+const firstRunLoginSetupPath = path.join(workspaceRoot, 'FIRST_RUN_LOGIN_SETUP.md');
+
+function isProfileLikelyInitialized(profileDir) {
+  if (!fs.existsSync(profileDir)) return false;
+  try {
+    const entries = fs.readdirSync(profileDir);
+    return entries.length > 0;
+  } catch (err) {
+    return false;
+  }
+}
+
+function writeFirstRunLoginSetupArtifact(profileDir) {
+  const content = `# First Run Login Setup\n\n` +
+    `This project uses a local Playwright profile to save browser login state.\n\n` +
+    `Profile directory:\n\n` +
+    `\`${profileDir}\`\n\n` +
+    `Recommended setup before live JCR or Web of Science lookup:\n\n` +
+    `1. Run \`launch_jcr_login.bat\` for Clarivate/JCR login, or run \`python launch_browser_for_login.py\` for Web of Science login.\n` +
+    `2. In the opened browser, log in with an institutional or personal account you are authorized to use.\n` +
+    `3. Verify that the target platform works.\n` +
+    `4. Close the browser window so cookies and session state are saved locally.\n\n` +
+    `Do not commit or share \`.playwright_profile/\`, \`.env\`, or \`config.json\`.\n\n` +
+    `To suppress this reminder, pass \`--skip-login-reminder\` where supported.\n\n` +
+    `Timestamp: ${new Date().toLocaleString()}\n`;
+
+  try {
+    fs.writeFileSync(firstRunLoginSetupPath, content, 'utf8');
+    console.log(`[First Run] Login setup artifact written to: ${firstRunLoginSetupPath}`);
+  } catch (err) {
+    console.error('[First Run] Failed to write login setup artifact:', err.message);
+  }
+}
+
+function remindFirstRunLoginSetup(profileDir) {
+  if (options.skipLoginReminder || process.env.SKIP_LOGIN_REMINDER === '1') {
+    return;
+  }
+  if (isProfileLikelyInitialized(profileDir)) {
+    return;
+  }
+
+  console.log('\n' + '='.repeat(80));
+  console.log('[First Run Login Setup]');
+  console.log('No existing .playwright_profile was detected.');
+  console.log('For live JCR or Web of Science lookup, log in once through the browser');
+  console.log('so cookies and session state can be saved locally.');
+  console.log('');
+  console.log('Recommended helpers:');
+  console.log('  - JCR: launch_jcr_login.bat');
+  console.log('  - Web of Science: python launch_browser_for_login.py');
+  console.log('');
+  console.log('The current script can still continue and will open a browser if needed.');
+  console.log('Do not commit or share .playwright_profile/.');
+  console.log('='.repeat(80) + '\n');
+
+  writeFirstRunLoginSetupArtifact(profileDir);
+}
 
 function writeJcrOfflineReminderArtifact() {
   const content = `# JCR 2024 Offline Data Option\n\n` +
@@ -2034,6 +2095,7 @@ async function startInteractiveConsole(page, context, options, results) {
     console.log('Usage 2 (Single Input): node fetch.js --journal "1879-1069" --year 2026 [--chrome-data <path>]');
     console.log('Usage 3 (Batch File):  node fetch.js --input <input.json> [--chrome-data <path>]');
     console.log('Optional: pass --skip-offline-reminder to skip the JCR 2024 offline-data prompt.');
+    console.log('Optional: pass --skip-login-reminder to skip the first-run login setup reminder.');
     process.exit(1);
   }
 
@@ -2072,6 +2134,7 @@ async function startInteractiveConsole(page, context, options, results) {
   }
 
   const localUserDataDir = path.resolve('.playwright_profile');
+  remindFirstRunLoginSetup(localUserDataDir);
   console.log(`[Unified Profile Setup] Launching JCR Fetcher using local dedicated profile: ${localUserDataDir}`);
   console.log(`[Unified Profile Setup] No file copying is needed. 100% immune to Chrome locks!`);
 

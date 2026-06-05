@@ -33,6 +33,7 @@ venv/
 *_stats.json
 JCR_OFFLINE_DATA_OPTION.md
 captcha_verification.md
+FIRST_RUN_LOGIN_SETUP.md
 
 # OS/editor
 .DS_Store

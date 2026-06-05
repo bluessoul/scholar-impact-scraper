@@ -17,6 +17,64 @@ import requests
 import pandas as pd
 from playwright.async_api import async_playwright
 
+def is_profile_likely_initialized(profile_dir: str) -> bool:
+    return os.path.isdir(profile_dir) and bool(os.listdir(profile_dir))
+
+
+def write_first_run_login_setup(profile_dir: str) -> None:
+    artifact_path = os.path.join(os.getcwd(), "FIRST_RUN_LOGIN_SETUP.md")
+    content = f"""# First Run Login Setup
+
+This project uses a local Playwright profile to save browser login state.
+
+Profile directory:
+
+`{profile_dir}`
+
+Recommended setup before live Web of Science lookup:
+
+1. Run `python launch_browser_for_login.py`.
+2. In the opened browser, log in with an institutional or personal account you are authorized to use.
+3. Verify that Web of Science works for your target profile.
+4. Close the browser window so cookies and session state are saved locally.
+
+For Clarivate/JCR login, run `launch_jcr_login.bat`.
+
+Do not commit or share `.playwright_profile/`, `.env`, or `config.json`.
+
+Timestamp: {__import__('datetime').datetime.now().isoformat(timespec='seconds')}
+"""
+    try:
+        with open(artifact_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        logger.info(f"First-run login setup artifact written to: {artifact_path}")
+    except Exception as exc:
+        logger.warning(f"Failed to write first-run login setup artifact: {exc}")
+
+
+def remind_first_run_login_setup(profile_dir: str, uses_wos: bool) -> None:
+    if os.getenv("SKIP_LOGIN_REMINDER") == "1":
+        return
+    if is_profile_likely_initialized(profile_dir):
+        return
+
+    print("\n" + "=" * 80)
+    print("[First Run Login Setup]")
+    print("No existing .playwright_profile was detected.")
+    print("The script can continue, but Web of Science/JCR access may require a saved browser login.")
+    print("")
+    print("Recommended setup:")
+    print("  - Web of Science: python launch_browser_for_login.py")
+    print("  - JCR: launch_jcr_login.bat")
+    print("")
+    if uses_wos:
+        print("Because --wos-id was provided, logging in once before extraction is recommended.")
+    print("Do not commit or share .playwright_profile/.")
+    print("=" * 80 + "\n")
+
+    write_first_run_login_setup(profile_dir)
+
+
 def fetch_doi_via_crossref(title: str) -> str:
     """
     Queries Crossref API to find the DOI of a paper by its title (Option 2).
@@ -293,6 +351,7 @@ async def scrape_scholar_profile(profile_url: str, output_csv: str, max_clicks: 
     async with async_playwright() as p:
         # Define a persistent user data directory inside the workspace
         user_data_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".playwright_profile"))
+        remind_first_run_login_setup(user_data_dir, uses_wos=bool(wos_id))
         logger.info(f"Launching visible Chromium with persistent profile: {user_data_dir}...")
         
         context = await p.chromium.launch_persistent_context(
