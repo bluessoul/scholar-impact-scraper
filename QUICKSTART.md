@@ -84,6 +84,8 @@ macOS/Linux:
 
 ### 6. 运行 JCR
 
+JCR 有两种使用方式：一种是使用你自己准备的网上公开分享的 JCR 2024 分区原始文件作为离线参考；另一种是使用你自己的 Clarivate/JCR 合法账号，通过 Playwright 自动化浏览器登录网站查询实时信息。当前脚本默认打开可视化浏览器，便于处理登录和验证码；如果你的环境适合，也可以自行改成无头模式。
+
 ```bash
 npm run fetch -- --input examples/jcr_input.example.json --output jcr_results.md
 ```
@@ -189,6 +191,8 @@ macOS/Linux:
 ```
 
 ## 6. Run JCR
+
+There are two JCR usage paths: use your own publicly shared JCR 2024 quartile raw-data file as an offline reference, or use your authorized Clarivate/JCR account with a Playwright automated browser to query live information from the website. The current scripts default to a visible browser window for login and verification; you can adapt the browser mode to headless in your own environment if appropriate.
 
 ```bash
 npm run fetch -- --input examples/jcr_input.example.json --output jcr_results.md
