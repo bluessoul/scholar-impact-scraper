@@ -159,6 +159,8 @@ python launch_browser_for_login.py
 
 实时查询不会绕过访问控制。你仍然需要使用自己有权使用的机构或个人账号。
 
+默认 public release 不附带完整的 JCR 2024 原始分区文件。原因是网上分享的数据文件可能有版权、数据库权利、平台条款或再分发限制。如果你只是本地使用，可以把自己的文件放在 `data/jcr2024/` 或其他本地路径中；如果你确实要把数据文件发布到 GitHub，请先确认来源允许公开再分发，并在 `data/jcr2024/README.md` 中记录来源、许可证、下载日期和校验信息。
+
 先准备输入文件。可以参考：
 
 ```text
@@ -379,6 +381,8 @@ The public release currently documents two JCR usage paths:
 - Live lookup: if you have legitimate Clarivate/JCR access, this project can use a Playwright automated browser to log in to the JCR website and query the latest information visible to your account. The current scripts default to a visible browser window so that institutional login, CAPTCHA, or security checks can be handled manually; you can adapt the browser mode to headless in your own environment if appropriate.
 
 Live lookup does not bypass access control. You still need to use an institutional or personal account that you are authorized to use.
+
+By default, the public release does not bundle the full JCR 2024 raw quartile file. Publicly shared data files may be subject to copyright, database rights, platform terms, or redistribution restrictions. For local-only use, place your own file under `data/jcr2024/` or another local path. If you decide to publish a data file to GitHub, first confirm that the source allows public redistribution and document the source, license, download date, and checksum in `data/jcr2024/README.md`.
 
 Prepare an input file. See:
 

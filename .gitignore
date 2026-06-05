@@ -23,6 +23,7 @@ venv/
 !package.json
 !package-lock.json
 !examples/*.json
+!data/**/README.md
 *.html
 *.png
 *.jpg
