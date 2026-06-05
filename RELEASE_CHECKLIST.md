@@ -1,4 +1,4 @@
-# Release Checklist
+﻿# Release Checklist
 
 Use this checklist before publishing this skill to GitHub.
 
@@ -37,6 +37,12 @@ git diff --cached
 
 Keyword matches in documentation or placeholder examples are acceptable only after manual review. Real emails, passwords, tokens, cookies, account identifiers, and generated research data are not acceptable.
 
+## License Check
+
+`LICENSE` and `NOTICE` should identify the public copyright holder as `bluessoul`.
+
+The project is intended to be released under Apache License 2.0. Keep `LICENSE`, `NOTICE`, and attribution in redistributions.
+
 ## Credential Rotation
 
 Because the source folder contained a real `config.json` with an email and password, rotate that password before publishing anything derived from this project.
@@ -44,3 +50,4 @@ Because the source folder contained a real `config.json` with an email and passw
 ## Compliance Note
 
 Use the tool only with accounts, subscriptions, and data that the user is authorized to access. Respect Google Scholar, Web of Science, Clarivate JCR, ORCID, institutional policies, rate limits, privacy obligations, and copyright restrictions.
+
