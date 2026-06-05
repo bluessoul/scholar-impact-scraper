@@ -1,0 +1,37 @@
+# Secrets and local credentials
+.env
+.env.*
+!.env.example
+config.json
+*.local.json
+
+# Browser/session state
+.playwright_profile/
+.agent/
+
+# Dependencies/runtime
+node_modules/
+node/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Generated outputs and captured pages
+*.csv
+*.json
+!package.json
+!package-lock.json
+*.html
+*.png
+*.jpg
+*.jpeg
+*.log
+*_results.md
+*_stats.json
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

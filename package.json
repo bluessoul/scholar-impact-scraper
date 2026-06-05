@@ -1,0 +1,14 @@
+{
+  "name": "scholar-impact-scraper",
+  "version": "1.0.0",
+  "description": "Scholar impact and JCR data extraction toolkit using Python and Playwright.",
+  "main": "scripts/fetch.js",
+  "scripts": {
+    "fetch": "node scripts/fetch.js"
+  },
+  "dependencies": {
+    "playwright": "^1.43.1",
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
+  }
+}
