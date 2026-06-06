@@ -49,6 +49,7 @@ cp .env.example .env
 只填写你要使用的功能需要的凭据：
 
 - ORCID：`ORCID_CLIENT_ID` 和 `ORCID_CLIENT_SECRET`
+- OpenAlex：可选 `OPENALEX_API_KEY`
 - JCR：`CLARIVATE_EMAIL` 和 `CLARIVATE_PASSWORD`
 - Web of Science：通常需要手动登录机构账号
 
@@ -118,6 +119,30 @@ npm run fetch -- --input examples/jcr_input.example.json --output jcr_results.md
 
 ```bash
 python scholar_playwright.py --user-id <Scholar_ID> --wos-id <WoS_ID> --output output.csv --max-clicks 5
+```
+
+默认论文补全命令：
+
+```bash
+python scholar_playwright.py --user-id <Scholar_ID> --output output.csv --max-clicks 5 --output-sort publication-date
+```
+
+脚本默认会按顺序使用 Google Scholar 详情页、OpenAlex 和 Crossref 补全 DOI 与元数据，并尝试提取通讯作者。`--output-sort publication-date` 会让 CSV 和参考文献按最新发表日期优先排序；如果想保持原来的按引用数排序，可以省略它。
+
+常用可选项：
+
+```text
+--citation-format apa,gbt
+--target-author "Author Name"
+--target-author-position 3
+--author-highlight both
+--corresponding-author "Author Name"
+--corresponding-author-position 5
+--openalex-max-records 20
+--no-fetch-doi
+--no-openalex-enrich
+--no-fetch-corresponding
+--output-sort citations|publication-date|year|none
 ```
 
 如果需要登录 Web of Science：

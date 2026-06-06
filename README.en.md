@@ -14,7 +14,7 @@ This project does not bypass platform access controls. Features that require acc
 
 - **Grant applications and CV preparation**: collect publications, citations, author order, corresponding-author signals, DOI, volume, issue, and pages, then export references in APA, MLA, Chicago, Harvard, LaTeX/BibTeX, AMA/Numeric, or GB/T 7714.
 - **Scholar impact screening**: quickly summarize Google Scholar and Web of Science citation signals for candidates, collaborators, lab members, or project teams.
-- **Publication-list enrichment**: start from a Google Scholar profile, open detail panels to fill authors, journal/conference, volume, issue, pages, publisher, and DOI; use Crossref only for DOI records still missing after Scholar detail extraction.
+- **Publication-list enrichment**: start from a Google Scholar profile, open detail panels to fill authors, journal/conference, volume, issue, pages, publisher, and DOI; use OpenAlex to enrich DOI, complete authors, corresponding authors, volume, issue, pages, source, and publisher; use Crossref only for DOI records still missing after those steps.
 - **Journal selection and output reporting**: look up JCR quartiles, rankings, and impact factors, or use user-provided multi-year local JCR files as reference data for submission planning and annual reporting.
 - **Agentic IDE workflows**: let Codex, Claude Code, OpenClaw, or similar clients read `SKILL.md`/`AGENTS.md` and help run local, human-in-the-loop research data workflows.
 
@@ -25,6 +25,7 @@ Scholar Impact Scraper is an academic impact extraction toolkit for QClaw/OpenCl
 It currently includes:
 
 - Google Scholar publication and citation scraping.
+- OpenAlex structured metadata enrichment for DOI, complete authors, corresponding authors, source, publisher, volume, issue, and pages.
 - Web of Science citation lookups when the user has legitimate access.
 - ORCID publication extraction through the ORCID Public API.
 - Clarivate JCR journal category, quartile, ranking, and impact-factor extraction.
@@ -41,6 +42,7 @@ Make sure you have:
 You do not need every account for every workflow. Configure only the credentials required by the feature you plan to use:
 
 - ORCID: requires an ORCID Public API Client ID and Client Secret.
+- OpenAlex: can be used anonymously; if you have an API key, configure it through `OPENALEX_API_KEY` or `--openalex-api-key` for more stable API access.
 - Google Scholar: usually does not require an account, but may trigger verification or rate limits.
 - Web of Science: requires legitimate institutional or personal access.
 - Clarivate JCR: requires legitimate Clarivate/JCR access.
@@ -108,6 +110,8 @@ OUTPUT_CSV=orcid_publications.csv
 
 CLARIVATE_EMAIL=your_email@institution.edu
 CLARIVATE_PASSWORD=your_password
+
+OPENALEX_API_KEY=your_optional_openalex_api_key
 ```
 
 Prefer `.env` or environment variables. `config.json` is supported only for local use, is ignored by Git, and must not be published.
@@ -173,6 +177,50 @@ python orcid_extractor.py --orcid 0000-0002-1825-0097 --client-id APP-YOURID --c
 ```bash
 python scholar_playwright.py --user-id <Scholar_ID> --wos-id <WoS_ID> --output output.csv --max-clicks 5
 ```
+
+Default runs now enable DOI resolution, OpenAlex enrichment, and corresponding-author lookup:
+
+```bash
+python scholar_playwright.py --user-id <Scholar_ID> --output output.csv --max-clicks 5
+```
+
+This starts from Google Scholar list/detail extraction, then enriches records with OpenAlex, and finally uses Crossref only for records that still have no DOI. OpenAlex adds columns such as `OpenAlex ID`, `OpenAlex DOI`, `OpenAlex Authors`, `OpenAlex Author Count`, `OpenAlex Corresponding Authors`, `OpenAlex Source`, `OpenAlex Publisher`, `OpenAlex Volume`, `OpenAlex Issue`, `OpenAlex Pages`, and `OpenAlex Evidence JSON`.
+
+To test a smaller number of records first:
+
+```bash
+python scholar_playwright.py --user-id <Scholar_ID> --output output.csv --max-clicks 1 --openalex-max-records 20
+```
+
+For a fast Google-Scholar-only run without DOI/OpenAlex/corresponding-author enrichment:
+
+```bash
+python scholar_playwright.py --user-id <Scholar_ID> --output output.csv --max-clicks 1 --no-fetch-doi --no-openalex-enrich --no-fetch-corresponding
+```
+
+Reference-format export:
+
+```bash
+python scholar_playwright.py --user-id <Scholar_ID> --output output.csv --citation-format apa,gbt
+```
+
+Supported formats include `apa`, `mla`, `chicago`, `harvard`, `latex`/`bibtex`, `ama`, `gbt`, and `all`. CSV is always saved; reference files are generated as companion outputs.
+
+Target-author and corresponding-author marking:
+
+```bash
+python scholar_playwright.py --user-id <Scholar_ID> --output output.csv --target-author "De-Yi Wang" --author-highlight both
+```
+
+`--target-author` or `--target-author-position` extracts the target author's position and highlights that author in author lists and reference exports. `--corresponding-author` or `--corresponding-author-position` can manually mark corresponding authors; the default corresponding-author lookup first reuses corresponding-author data from OpenAlex enrichment when available. Use `--no-fetch-corresponding` to disable it.
+
+Output sorting is user-selectable:
+
+```bash
+python scholar_playwright.py --user-id <Scholar_ID> --output output.csv --output-sort publication-date
+```
+
+`--output-sort` supports `citations`, `publication-date`, `year`, and `none`. The default remains `citations`, sorted by Google Scholar citation count descending. With `publication-date`, both CSV and reference exports use newest publications first.
 
 If Web of Science needs institutional login, open a local persistent browser profile first:
 

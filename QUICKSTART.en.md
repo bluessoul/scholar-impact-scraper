@@ -47,6 +47,7 @@ cp .env.example .env
 Fill in only the credentials required by the workflow you plan to use:
 
 - ORCID: `ORCID_CLIENT_ID` and `ORCID_CLIENT_SECRET`
+- OpenAlex: optional `OPENALEX_API_KEY`
 - JCR: `CLARIVATE_EMAIL` and `CLARIVATE_PASSWORD`
 - Web of Science: usually requires manual institutional login
 
@@ -116,6 +117,30 @@ npm run fetch -- --input examples/jcr_input.example.json --output jcr_results.md
 
 ```bash
 python scholar_playwright.py --user-id <Scholar_ID> --wos-id <WoS_ID> --output output.csv --max-clicks 5
+```
+
+Default publication-enrichment run:
+
+```bash
+python scholar_playwright.py --user-id <Scholar_ID> --output output.csv --max-clicks 5 --output-sort publication-date
+```
+
+The script defaults to Google Scholar detail panels, OpenAlex, and Crossref in order to enrich DOI and metadata, and it attempts corresponding-author extraction. `--output-sort publication-date` makes CSV and reference outputs newest-first; omit it to keep the default citation-count sort.
+
+Common optional flags:
+
+```text
+--citation-format apa,gbt
+--target-author "Author Name"
+--target-author-position 3
+--author-highlight both
+--corresponding-author "Author Name"
+--corresponding-author-position 5
+--openalex-max-records 20
+--no-fetch-doi
+--no-openalex-enrich
+--no-fetch-corresponding
+--output-sort citations|publication-date|year|none
 ```
 
 If Web of Science needs login:

@@ -1111,7 +1111,7 @@ async def scrape_wos_citations(orcid_id: str, page, fetch_wos_ut: bool = False) 
         "sum_cited_without_self": wos_sum_cited_without_self
     }
 
-async def scrape_scholar_profile(profile_url: str, output_csv: str, max_clicks: int, refine_mode: str = "auto", refine_limit: int = 10, fetch_doi: bool = False, wos_id: str = None, fetch_wos_ut: bool = False, citation_format: str = "ask", target_author: str = "", target_author_position: int = 0, author_highlight: str = "bold", corresponding_author: str = "", corresponding_author_position: int = 0, fetch_corresponding: bool = False, openalex_enrich: bool = False, openalex_api_key: str = "", openalex_max_records: int = 0, openalex_min_confidence: float = 0.82, output_sort: str = "citations") -> None:
+async def scrape_scholar_profile(profile_url: str, output_csv: str, max_clicks: int, refine_mode: str = "auto", refine_limit: int = 10, fetch_doi: bool = True, wos_id: str = None, fetch_wos_ut: bool = False, citation_format: str = "ask", target_author: str = "", target_author_position: int = 0, author_highlight: str = "bold", corresponding_author: str = "", corresponding_author_position: int = 0, fetch_corresponding: bool = True, openalex_enrich: bool = True, openalex_api_key: str = "", openalex_max_records: int = 0, openalex_min_confidence: float = 0.82, output_sort: str = "citations") -> None:
     """
     Launches a non-headless Playwright Chromium instance, navigates to the Scholar profile,
     handles dynamic pagination with "Show more", pauses for manual CAPTCHA solving,
@@ -1719,8 +1719,9 @@ def main():
     )
     parser.add_argument(
         "--fetch-doi",
-        action="store_true",
-        help="Query Crossref API to fetch and store DOI links for each publication."
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Resolve DOI links by default using Scholar detail, OpenAlex, then Crossref fallback. Use --no-fetch-doi for a faster minimal run."
     )
     parser.add_argument(
         "--wos-id",
@@ -1780,13 +1781,15 @@ def main():
     )
     parser.add_argument(
         "--fetch-corresponding",
-        action="store_true",
-        help="Try to infer corresponding authors from metadata, using OpenAlex first and Crossref as a no-guess fallback."
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Infer corresponding authors by default, reusing OpenAlex enrichment first. Use --no-fetch-corresponding to disable."
     )
     parser.add_argument(
         "--openalex-enrich",
-        action="store_true",
-        help="Use OpenAlex to enrich DOI, complete authors, corresponding authors, source, publisher, volume, issue, and pages before Crossref fallback."
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Use OpenAlex by default to enrich DOI, complete authors, corresponding authors, source, publisher, volume, issue, and pages. Use --no-openalex-enrich for offline/minimal runs."
     )
     parser.add_argument(
         "--openalex-api-key",

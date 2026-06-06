@@ -14,7 +14,7 @@
 
 - **基金申请和简历整理**：批量整理某位学者的论文、引用、作者顺序、通讯作者线索、DOI、卷期页码，并按 APA、MLA、Chicago、Harvard、LaTeX/BibTeX、AMA/Numeric 或 GB/T 7714 导出参考文献，减少手工改格式的时间。
 - **学者影响力初筛**：快速汇总 Google Scholar 与 Web of Science 的引用指标，辅助评估候选人、合作对象、课题组成员或项目团队的科研产出。
-- **论文清单补全**：从 Google Scholar 列表页出发，打开详情页补全作者、期刊/会议、卷、期、页码、出版社、DOI 等字段；缺失 DOI 时再用 Crossref 进行补充校验。
+- **论文清单补全**：从 Google Scholar 列表页出发，打开详情页补全作者、期刊/会议、卷、期、页码、出版社、DOI 等字段；再用 OpenAlex 补全 DOI、完整作者、通讯作者、卷期页码和来源信息；仍缺失 DOI 时再用 Crossref 进行补充校验。
 - **期刊投稿和成果归档**：查询 JCR 分区、排名和影响因子，或把用户自己下载的多年份 JCR 本地数据作为参考，服务投稿选择、成果登记和年度统计。
 - **Agentic IDE 自动化任务**：让 Codex、Claude Code、OpenClaw 等客户端读取 `SKILL.md`/`AGENTS.md`，在本地凭据和浏览器会话范围内协助执行半自动化科研数据整理流程。
 
@@ -25,6 +25,7 @@ Scholar Impact Scraper 是一个面向 QClaw/OpenClaw、Codex、Claude Code、Cl
 它目前包含：
 
 - Google Scholar 论文列表和引用数据抓取。
+- OpenAlex 结构化元数据增强，用于补全 DOI、作者列表、通讯作者、期刊/来源、出版社、卷、期和页码。
 - Web of Science 引用数据查询，前提是用户拥有合法访问权限。
 - ORCID Public API 论文成果提取。
 - Clarivate JCR 期刊学科类别、分区、排名和影响因子提取。
@@ -41,6 +42,7 @@ Scholar Impact Scraper 是一个面向 QClaw/OpenClaw、Codex、Claude Code、Cl
 你不一定需要配置所有账号。只使用哪个功能，就配置哪个功能需要的凭据：
 
 - ORCID：需要 ORCID Public API Client ID 和 Client Secret。
+- OpenAlex：可以匿名使用；如有 API key，可通过 `OPENALEX_API_KEY` 或 `--openalex-api-key` 配置，以便更稳定地使用 API。
 - Google Scholar：通常不需要账号，但可能触发验证码或访问限制。
 - Web of Science：需要你自己拥有合法的机构订阅或个人访问权限。
 - Clarivate JCR：需要你自己拥有合法的 Clarivate/JCR 访问权限。
@@ -108,6 +110,8 @@ OUTPUT_CSV=orcid_publications.csv
 
 CLARIVATE_EMAIL=your_email@institution.edu
 CLARIVATE_PASSWORD=your_password
+
+OPENALEX_API_KEY=your_optional_openalex_api_key
 ```
 
 建议优先使用 `.env` 或系统环境变量。`config.json` 只适合本地临时使用，已经被 `.gitignore` 忽略，不能发布。
@@ -173,6 +177,50 @@ python orcid_extractor.py --orcid 0000-0002-1825-0097 --client-id APP-YOURID --c
 ```bash
 python scholar_playwright.py --user-id <Scholar_ID> --wos-id <WoS_ID> --output output.csv --max-clicks 5
 ```
+
+默认抓取已经启用 DOI 解析、OpenAlex 元数据增强和通讯作者自动识别：
+
+```bash
+python scholar_playwright.py --user-id <Scholar_ID> --output output.csv --max-clicks 5
+```
+
+这条命令会先从 Google Scholar 列表页和详情页抓取论文基础信息，再用 OpenAlex 补全结构化元数据，最后只对仍然缺失 DOI 的记录使用 Crossref。OpenAlex 增强会新增 `OpenAlex ID`、`OpenAlex DOI`、`OpenAlex Authors`、`OpenAlex Author Count`、`OpenAlex Corresponding Authors`、`OpenAlex Source`、`OpenAlex Publisher`、`OpenAlex Volume`、`OpenAlex Issue`、`OpenAlex Pages`、`OpenAlex Evidence JSON` 等列。
+
+如果只想先测试部分记录，可以限制 OpenAlex 调用数量：
+
+```bash
+python scholar_playwright.py --user-id <Scholar_ID> --output output.csv --max-clicks 1 --openalex-max-records 20
+```
+
+如果只想快速抓 Google Scholar，不做 DOI/OpenAlex/通讯作者增强：
+
+```bash
+python scholar_playwright.py --user-id <Scholar_ID> --output output.csv --max-clicks 1 --no-fetch-doi --no-openalex-enrich --no-fetch-corresponding
+```
+
+参考文献格式导出：
+
+```bash
+python scholar_playwright.py --user-id <Scholar_ID> --output output.csv --citation-format apa,gbt
+```
+
+支持 `apa`、`mla`、`chicago`、`harvard`、`latex`/`bibtex`、`ama`、`gbt` 和 `all`。CSV 始终会保存，参考文献文件会额外生成。
+
+作者和通讯作者标注：
+
+```bash
+python scholar_playwright.py --user-id <Scholar_ID> --output output.csv --target-author "De-Yi Wang" --author-highlight both
+```
+
+`--target-author` 或 `--target-author-position` 会提取目标作者位次，并在作者列表和参考文献导出中高亮。`--corresponding-author` 或 `--corresponding-author-position` 可手动指定通讯作者；默认通讯作者识别会优先复用 OpenAlex enrichment 中的信息。需要关闭时使用 `--no-fetch-corresponding`。
+
+输出排序可由用户选择：
+
+```bash
+python scholar_playwright.py --user-id <Scholar_ID> --output output.csv --output-sort publication-date
+```
+
+`--output-sort` 支持 `citations`、`publication-date`、`year` 和 `none`。默认仍为 `citations`，即按 Google Scholar 引用数降序；选择 `publication-date` 时，CSV 和参考文献导出都会按最新发表日期优先排序。
 
 如果 Web of Science 需要机构登录，先打开本地持久化浏览器：
 
