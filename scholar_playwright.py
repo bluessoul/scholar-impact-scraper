@@ -165,6 +165,212 @@ def fetch_doi_evidence_via_crossref(title: str) -> dict:
 def fetch_doi_via_crossref(title: str) -> str:
     return fetch_doi_evidence_via_crossref(title).get("doi", "N/A")
 
+OPENALEX_WORK_SELECT = ",".join([
+    "id",
+    "doi",
+    "ids",
+    "title",
+    "display_name",
+    "publication_year",
+    "publication_date",
+    "authorships",
+    "corresponding_author_ids",
+    "biblio",
+    "primary_location",
+    "type",
+    "cited_by_count",
+])
+
+def openalex_get_works(params: dict, api_key: str = "") -> dict:
+    params = dict(params)
+    if api_key:
+        params["api_key"] = api_key
+    response = requests.get("https://api.openalex.org/works", params=params, timeout=20)
+    response.raise_for_status()
+    return response.json()
+
+def fetch_openalex_work_candidates(record: dict, api_key: str = "") -> tuple:
+    doi = normalize_doi(record.get("DOI", ""))
+    if doi:
+        doi_url = f"https://doi.org/{doi}"
+        data = openalex_get_works({
+            "filter": f"doi:{doi_url}",
+            "select": OPENALEX_WORK_SELECT,
+            "per-page": 1,
+        }, api_key)
+        return data.get("results", []), "doi"
+
+    title = clean_bib_value(record.get("Title"))
+    if not title:
+        return [], "none"
+    data = openalex_get_works({
+        "search": title,
+        "select": OPENALEX_WORK_SELECT,
+        "per-page": 3,
+    }, api_key)
+    return data.get("results", []), "title"
+
+def openalex_source(work: dict) -> tuple:
+    source = ((work.get("primary_location") or {}).get("source") or {})
+    source_name = clean_bib_value(source.get("display_name"))
+    publisher = clean_bib_value(source.get("host_organization_name") or source.get("publisher") or source.get("host_organization"))
+    return source_name or "N/A", publisher or "N/A"
+
+def openalex_pages(work: dict) -> str:
+    biblio = work.get("biblio") or {}
+    first_page = clean_bib_value(biblio.get("first_page"))
+    last_page = clean_bib_value(biblio.get("last_page"))
+    if first_page and last_page and first_page != last_page:
+        return f"{first_page}-{last_page}"
+    return first_page or last_page or "N/A"
+
+def parse_openalex_work(work: dict) -> dict:
+    authorships = work.get("authorships") or []
+    corresponding_ids = set(work.get("corresponding_author_ids") or [])
+    authors = []
+    corresponding_authors = []
+    corresponding_positions = []
+    for idx, authorship in enumerate(authorships, 1):
+        author = authorship.get("author") or {}
+        author_id = author.get("id", "")
+        name = clean_bib_value(authorship.get("raw_author_name") or author.get("display_name"))
+        if name:
+            authors.append(name)
+        if authorship.get("is_corresponding") is True or (author_id and author_id in corresponding_ids):
+            if name:
+                corresponding_authors.append(name)
+                corresponding_positions.append(str(idx))
+
+    biblio = work.get("biblio") or {}
+    source_name, publisher = openalex_source(work)
+    return {
+        "id": clean_bib_value(work.get("id")) or "N/A",
+        "doi": format_doi_url(work.get("doi") or (work.get("ids") or {}).get("doi")),
+        "title": clean_bib_value(work.get("title") or work.get("display_name")),
+        "year": clean_bib_value(work.get("publication_year")),
+        "authors": ", ".join(authors) if authors else "N/A",
+        "author_count": len(authors),
+        "corresponding_authors": "; ".join(corresponding_authors) if corresponding_authors else "N/A",
+        "corresponding_positions": "; ".join(corresponding_positions) if corresponding_positions else "N/A",
+        "source": source_name,
+        "publisher": publisher,
+        "volume": clean_bib_value(biblio.get("volume")) or "N/A",
+        "issue": clean_bib_value(biblio.get("issue")) or "N/A",
+        "pages": openalex_pages(work),
+        "raw": work,
+    }
+
+def score_openalex_match(record: dict, parsed: dict, method: str) -> float:
+    if method == "doi":
+        return 1.0
+    title_score = title_similarity(record.get("Title", ""), parsed.get("title", ""))
+    score = title_score
+    record_year = clean_bib_value(record.get("Year") or record.get("Publication Date"))
+    if record_year and parsed.get("year") and record_year[:4] == str(parsed.get("year"))[:4]:
+        score += 0.04
+    record_venue = clean_bib_value(record.get("Journal/Venue") or record.get("Journal") or record.get("Conference"))
+    if record_venue and parsed.get("source") != "N/A":
+        score += min(title_similarity(record_venue, parsed.get("source")), 1.0) * 0.04
+    return min(score, 1.0)
+
+def confidence_label(score: float) -> str:
+    if score >= 0.92:
+        return "high"
+    if score >= 0.82:
+        return "medium"
+    if score > 0:
+        return "low"
+    return "none"
+
+def has_value(value) -> bool:
+    return bool(clean_bib_value(value))
+
+def set_if_missing(record: dict, key: str, value) -> None:
+    if has_value(value) and not has_value(record.get(key)):
+        record[key] = value
+
+def ensure_openalex_columns(record: dict) -> None:
+    defaults = {
+        "OpenAlex ID": "N/A",
+        "OpenAlex DOI": "N/A",
+        "OpenAlex Match Confidence": "none",
+        "OpenAlex Match Method": "N/A",
+        "OpenAlex Authors": "N/A",
+        "OpenAlex Author Count": "N/A",
+        "OpenAlex Corresponding Authors": "N/A",
+        "OpenAlex Corresponding Author Positions": "N/A",
+        "OpenAlex Source": "N/A",
+        "OpenAlex Publisher": "N/A",
+        "OpenAlex Volume": "N/A",
+        "OpenAlex Issue": "N/A",
+        "OpenAlex Pages": "N/A",
+        "OpenAlex Evidence JSON": "{}",
+        "Metadata Enrichment Source": "N/A",
+        "Metadata Enrichment Confidence": "none",
+    }
+    for key, value in defaults.items():
+        record.setdefault(key, value)
+
+def enrich_record_with_openalex(record: dict, api_key: str = "", min_confidence: float = 0.82) -> None:
+    ensure_openalex_columns(record)
+    try:
+        candidates, method = fetch_openalex_work_candidates(record, api_key)
+        if not candidates:
+            record["OpenAlex Evidence JSON"] = json.dumps({"error": "no matching OpenAlex work", "method": method}, ensure_ascii=False)
+            return
+
+        parsed_candidates = []
+        for work in candidates:
+            parsed = parse_openalex_work(work)
+            score = score_openalex_match(record, parsed, method)
+            parsed_candidates.append((score, parsed))
+        score, parsed = max(parsed_candidates, key=lambda item: item[0])
+        label = confidence_label(score)
+
+        record["OpenAlex ID"] = parsed["id"]
+        record["OpenAlex DOI"] = parsed["doi"]
+        record["OpenAlex Match Confidence"] = f"{score:.3f}"
+        record["OpenAlex Match Method"] = method
+        record["OpenAlex Authors"] = parsed["authors"]
+        record["OpenAlex Author Count"] = parsed["author_count"] if parsed["author_count"] else "N/A"
+        record["OpenAlex Corresponding Authors"] = parsed["corresponding_authors"]
+        record["OpenAlex Corresponding Author Positions"] = parsed["corresponding_positions"]
+        record["OpenAlex Source"] = parsed["source"]
+        record["OpenAlex Publisher"] = parsed["publisher"]
+        record["OpenAlex Volume"] = parsed["volume"]
+        record["OpenAlex Issue"] = parsed["issue"]
+        record["OpenAlex Pages"] = parsed["pages"]
+        record["OpenAlex Evidence JSON"] = json.dumps({
+            "method": method,
+            "confidence": score,
+            "confidence_label": label,
+            "matched_title": parsed["title"],
+            "matched_year": parsed["year"],
+            "openalex_id": parsed["id"],
+        }, ensure_ascii=False)
+
+        if score < min_confidence:
+            return
+
+        record["Metadata Enrichment Source"] = "OpenAlex"
+        record["Metadata Enrichment Confidence"] = label
+        if not has_value(record.get("DOI")) and parsed["doi"] != "N/A":
+            record["DOI"] = parsed["doi"]
+            record["DOI Source"] = "OpenAlex"
+            record["DOI Confidence"] = label
+            record["DOI Evidence JSON"] = record["OpenAlex Evidence JSON"]
+        if ("..." in str(record.get("Authors", "")) or not has_value(record.get("Authors"))) and parsed["authors"] != "N/A":
+            record["Authors"] = parsed["authors"]
+        if parsed["source"] != "N/A":
+            set_if_missing(record, "Journal/Venue", parsed["source"])
+            set_if_missing(record, "Journal", parsed["source"])
+        set_if_missing(record, "Publisher", parsed["publisher"])
+        set_if_missing(record, "Volume", parsed["volume"])
+        set_if_missing(record, "Issue", parsed["issue"])
+        set_if_missing(record, "Pages", parsed["pages"])
+    except Exception as exc:
+        record["OpenAlex Evidence JSON"] = json.dumps({"error": str(exc)}, ensure_ascii=False)
+
 # Set up logging
 logging.basicConfig(
     level=logging.INFO,
@@ -344,34 +550,51 @@ def annotate_corresponding_author(record: dict, corresponding_author: str = "", 
     if manual_position:
         record["Highlighted Corresponding Authors"] = build_highlighted_authors(record.get("Authors", ""), manual_position, highlight_style)
     elif fetch_auto:
-        evidence = fetch_openalex_corresponding_authors(record.get("DOI", ""))
-        if not evidence.get("authors"):
-            crossref_evidence = fetch_crossref_corresponding_authors(record.get("DOI", ""))
-            evidence = {
-                "source": "OpenAlex; Crossref",
-                "confidence": "none",
-                "error": f"OpenAlex: {evidence.get('error', '')}; Crossref: {crossref_evidence.get('error', '')}",
-                "authors": [],
-            }
-        record["Corresponding Evidence JSON"] = json.dumps(evidence, ensure_ascii=False)
-        if evidence.get("authors"):
-            names = [author.get("name", "") for author in evidence["authors"] if author.get("name")]
-            positions = []
-            matched_positions = []
-            for author in evidence["authors"]:
-                pos, matched_name = find_target_author(record.get("Authors", ""), author.get("name", ""), author.get("position", 0))
-                if pos:
-                    matched_positions.append(pos)
-                    positions.append(str(pos))
-            record["Corresponding Author Position"] = "; ".join(positions) if positions else "N/A"
-            record["Corresponding Author Matched Name"] = "; ".join(names) if names else "N/A"
-            record["Corresponding Evidence Source"] = evidence.get("source", "OpenAlex")
-            record["Corresponding Confidence"] = evidence.get("confidence", "high")
-            if matched_positions:
-                highlighted = record.get("Authors", "N/A")
-                for pos in matched_positions:
-                    highlighted = build_highlighted_authors(highlighted, pos, highlight_style)
-                record["Highlighted Corresponding Authors"] = highlighted
+        openalex_names = clean_bib_value(record.get("OpenAlex Corresponding Authors"))
+        openalex_positions = [
+            parse_author_position(part.strip())
+            for part in str(record.get("OpenAlex Corresponding Author Positions", "")).split(";")
+            if parse_author_position(part.strip())
+        ]
+        if openalex_names and openalex_positions:
+            record["Corresponding Author Position"] = "; ".join(str(pos) for pos in openalex_positions)
+            record["Corresponding Author Matched Name"] = openalex_names
+            record["Corresponding Evidence Source"] = "OpenAlex enrichment"
+            record["Corresponding Confidence"] = record.get("Metadata Enrichment Confidence", "high")
+            record["Corresponding Evidence JSON"] = record.get("OpenAlex Evidence JSON", "{}")
+            highlighted = record.get("Authors", "N/A")
+            for pos in openalex_positions:
+                highlighted = build_highlighted_authors(highlighted, pos, highlight_style)
+            record["Highlighted Corresponding Authors"] = highlighted
+        else:
+            evidence = fetch_openalex_corresponding_authors(record.get("DOI", ""))
+            if not evidence.get("authors"):
+                crossref_evidence = fetch_crossref_corresponding_authors(record.get("DOI", ""))
+                evidence = {
+                    "source": "OpenAlex; Crossref",
+                    "confidence": "none",
+                    "error": f"OpenAlex: {evidence.get('error', '')}; Crossref: {crossref_evidence.get('error', '')}",
+                    "authors": [],
+                }
+            record["Corresponding Evidence JSON"] = json.dumps(evidence, ensure_ascii=False)
+            if evidence.get("authors"):
+                names = [author.get("name", "") for author in evidence["authors"] if author.get("name")]
+                positions = []
+                matched_positions = []
+                for author in evidence["authors"]:
+                    pos, matched_name = find_target_author(record.get("Authors", ""), author.get("name", ""), author.get("position", 0))
+                    if pos:
+                        matched_positions.append(pos)
+                        positions.append(str(pos))
+                record["Corresponding Author Position"] = "; ".join(positions) if positions else "N/A"
+                record["Corresponding Author Matched Name"] = "; ".join(names) if names else "N/A"
+                record["Corresponding Evidence Source"] = evidence.get("source", "OpenAlex")
+                record["Corresponding Confidence"] = evidence.get("confidence", "high")
+                if matched_positions:
+                    highlighted = record.get("Authors", "N/A")
+                    for pos in matched_positions:
+                        highlighted = build_highlighted_authors(highlighted, pos, highlight_style)
+                    record["Highlighted Corresponding Authors"] = highlighted
 
     target_position = parse_author_position(record.get("Target Author Position"))
     corr_positions = {
@@ -639,6 +862,30 @@ def write_citation_exports(records: list, output_csv: str, citation_format: str,
             f.write(content + ("\n" if content else ""))
         logger.info(f"{CITATION_FORMAT_LABELS[fmt]} citations saved to: {os.path.abspath(output_path)}")
 
+def sort_output_dataframe(df: pd.DataFrame, sort_mode: str = "citations") -> pd.DataFrame:
+    mode = (sort_mode or "citations").strip().lower().replace("_", "-")
+    if mode == "none":
+        return df
+    if mode == "citations" and "Citations" in df.columns:
+        return df.sort_values(by="Citations", ascending=False)
+    if mode in ("publication-date", "date"):
+        if "Publication Date" in df.columns:
+            parsed = pd.to_datetime(df["Publication Date"], errors="coerce")
+            return df.assign(_sort_publication_date=parsed).sort_values(
+                by=["_sort_publication_date", "Year"],
+                ascending=[False, False],
+                na_position="last",
+            ).drop(columns=["_sort_publication_date"])
+        mode = "year"
+    if mode == "year" and "Year" in df.columns:
+        parsed_year = pd.to_numeric(df["Year"], errors="coerce")
+        return df.assign(_sort_year=parsed_year).sort_values(
+            by="_sort_year",
+            ascending=False,
+            na_position="last",
+        ).drop(columns=["_sort_year"])
+    return df
+
 async def handle_captcha_if_needed(page) -> None:
     """
     Checks if Google has triggered a CAPTCHA or blocked the request (sorry page).
@@ -864,7 +1111,7 @@ async def scrape_wos_citations(orcid_id: str, page, fetch_wos_ut: bool = False) 
         "sum_cited_without_self": wos_sum_cited_without_self
     }
 
-async def scrape_scholar_profile(profile_url: str, output_csv: str, max_clicks: int, refine_mode: str = "auto", refine_limit: int = 10, fetch_doi: bool = False, wos_id: str = None, fetch_wos_ut: bool = False, citation_format: str = "ask", target_author: str = "", target_author_position: int = 0, author_highlight: str = "bold", corresponding_author: str = "", corresponding_author_position: int = 0, fetch_corresponding: bool = False) -> None:
+async def scrape_scholar_profile(profile_url: str, output_csv: str, max_clicks: int, refine_mode: str = "auto", refine_limit: int = 10, fetch_doi: bool = False, wos_id: str = None, fetch_wos_ut: bool = False, citation_format: str = "ask", target_author: str = "", target_author_position: int = 0, author_highlight: str = "bold", corresponding_author: str = "", corresponding_author_position: int = 0, fetch_corresponding: bool = False, openalex_enrich: bool = False, openalex_api_key: str = "", openalex_max_records: int = 0, openalex_min_confidence: float = 0.82, output_sort: str = "citations") -> None:
     """
     Launches a non-headless Playwright Chromium instance, navigates to the Scholar profile,
     handles dynamic pagination with "Show more", pauses for manual CAPTCHA solving,
@@ -917,6 +1164,10 @@ async def scrape_scholar_profile(profile_url: str, output_csv: str, max_clicks: 
         # Enhanced pagination loop with human‑like evasion tactics
         click_count = 0  # Track number of "Show more" clicks
         while True:
+            if click_count >= max_clicks:
+                logger.info(f"Reached maximum of {max_clicks} 'Show more' clicks; stopping pagination.")
+                break
+
             # Check for CAPTCHA before each interaction
             await handle_captcha_if_needed(page)
 
@@ -1098,6 +1349,22 @@ async def scrape_scholar_profile(profile_url: str, output_csv: str, max_clicks: 
                 "DOI Source": "N/A",
                 "DOI Confidence": "none",
                 "DOI Evidence JSON": "{}",
+                "OpenAlex ID": "N/A",
+                "OpenAlex DOI": "N/A",
+                "OpenAlex Match Confidence": "none",
+                "OpenAlex Match Method": "N/A",
+                "OpenAlex Authors": "N/A",
+                "OpenAlex Author Count": "N/A",
+                "OpenAlex Corresponding Authors": "N/A",
+                "OpenAlex Corresponding Author Positions": "N/A",
+                "OpenAlex Source": "N/A",
+                "OpenAlex Publisher": "N/A",
+                "OpenAlex Volume": "N/A",
+                "OpenAlex Issue": "N/A",
+                "OpenAlex Pages": "N/A",
+                "OpenAlex Evidence JSON": "{}",
+                "Metadata Enrichment Source": "N/A",
+                "Metadata Enrichment Confidence": "none",
                 "Scholar Detail Fields JSON": "{}",
                 "Target Author Query": "N/A",
                 "Target Author Position": "N/A",
@@ -1312,8 +1579,17 @@ async def scrape_scholar_profile(profile_url: str, output_csv: str, max_clicks: 
         logger.info("Closing persistent browser context...")
         await context.close()
 
+        if openalex_enrich and extracted_data:
+            logger.info("Enriching records via OpenAlex before Crossref fallback...")
+            import time
+            limit = openalex_max_records if openalex_max_records and openalex_max_records > 0 else len(extracted_data)
+            for idx, data in enumerate(extracted_data[:limit]):
+                logger.info(f"[{idx+1}/{min(limit, len(extracted_data))}] Querying OpenAlex for: '{data.get('Title', '')[:50]}...'")
+                enrich_record_with_openalex(data, openalex_api_key, openalex_min_confidence)
+                time.sleep(0.12 if openalex_api_key else 0.35)
+
         # ==========================================
-        # Fetching DOIs via Crossref (Option 2)
+        # Fetching DOIs via Crossref fallback
         # ==========================================
         if fetch_doi and extracted_data:
             logger.info("Resolving missing DOIs via Crossref after Google Scholar detail extraction...")
@@ -1352,8 +1628,7 @@ async def scrape_scholar_profile(profile_url: str, output_csv: str, max_clicks: 
         if extracted_data:
             df = pd.DataFrame(extracted_data)
             
-            # Sort by Citations descending
-            df_sorted = df.sort_values(by="Citations", ascending=False)
+            df_sorted = sort_output_dataframe(df, output_sort)
             
             # Save to CSV (using utf-8-sig for perfect Windows Excel encoding)
             df_sorted.to_csv(output_csv, index=False, encoding="utf-8-sig")
@@ -1384,7 +1659,6 @@ async def scrape_scholar_profile(profile_url: str, output_csv: str, max_clicks: 
             base_path, _ = os.path.splitext(output_csv)
             stats_json_path = f"{base_path}_stats.json"
             try:
-                import json
                 with open(stats_json_path, "w", encoding="utf-8") as f:
                     json.dump(stats_summary, f, indent=4, ensure_ascii=False)
                 logger.info(f"Stats summary successfully saved to: {os.path.abspath(stats_json_path)}")
@@ -1471,6 +1745,12 @@ def main():
         help="Optional reference export format: ask, none, apa, mla, chicago, harvard, latex/bibtex, ama, gbt/gbt7714, all, or comma-separated values."
     )
     parser.add_argument(
+        "--output-sort",
+        choices=["citations", "publication-date", "year", "none"],
+        default="citations",
+        help="CSV and reference export sort order. Default is citations; use publication-date for newest publications first."
+    )
+    parser.add_argument(
         "--target-author",
         default="",
         help="Author name to locate in each publication's author list. Adds target author position columns and enables author highlighting in reference exports."
@@ -1503,6 +1783,28 @@ def main():
         action="store_true",
         help="Try to infer corresponding authors from metadata, using OpenAlex first and Crossref as a no-guess fallback."
     )
+    parser.add_argument(
+        "--openalex-enrich",
+        action="store_true",
+        help="Use OpenAlex to enrich DOI, complete authors, corresponding authors, source, publisher, volume, issue, and pages before Crossref fallback."
+    )
+    parser.add_argument(
+        "--openalex-api-key",
+        default=os.getenv("OPENALEX_API_KEY", ""),
+        help="OpenAlex API key. Defaults to OPENALEX_API_KEY when set."
+    )
+    parser.add_argument(
+        "--openalex-max-records",
+        type=int,
+        default=0,
+        help="Maximum records to enrich through OpenAlex; 0 means all records."
+    )
+    parser.add_argument(
+        "--openalex-min-confidence",
+        type=float,
+        default=0.82,
+        help="Minimum OpenAlex title-match confidence required to overwrite missing metadata for non-DOI matches."
+    )
     parser.set_defaults(fetch_wos_ut=None)
     
     args = parser.parse_args()
@@ -1520,6 +1822,9 @@ def main():
         except Exception:
             fetch_wos_ut = False
             
+    if args.refine == "none" and (args.fetch_doi or args.openalex_enrich):
+        args.refine = "auto"
+
     # Standard profile URL format
     profile_url = f"https://scholar.google.com/citations?hl=en&user={args.user_id.strip()}"
     
@@ -1540,7 +1845,12 @@ def main():
             author_highlight=args.author_highlight,
             corresponding_author=args.corresponding_author,
             corresponding_author_position=args.corresponding_author_position,
-            fetch_corresponding=args.fetch_corresponding
+            fetch_corresponding=args.fetch_corresponding,
+            openalex_enrich=args.openalex_enrich,
+            openalex_api_key=args.openalex_api_key,
+            openalex_max_records=args.openalex_max_records,
+            openalex_min_confidence=args.openalex_min_confidence,
+            output_sort=args.output_sort
         ))
     except KeyboardInterrupt:
         logger.info("Process interrupted by user. Exiting.")
@@ -1595,6 +1905,22 @@ def main():
                             "DOI Source": "scholarly bib" if bib_doi_found else "N/A",
                             "DOI Confidence": "medium" if bib_doi_found else "none",
                             "DOI Evidence JSON": json.dumps({"bib_doi": bib.get('doi', bib.get('DOI', ''))}, ensure_ascii=False) if bib_doi_found else "{}",
+                            "OpenAlex ID": "N/A",
+                            "OpenAlex DOI": "N/A",
+                            "OpenAlex Match Confidence": "none",
+                            "OpenAlex Match Method": "N/A",
+                            "OpenAlex Authors": "N/A",
+                            "OpenAlex Author Count": "N/A",
+                            "OpenAlex Corresponding Authors": "N/A",
+                            "OpenAlex Corresponding Author Positions": "N/A",
+                            "OpenAlex Source": "N/A",
+                            "OpenAlex Publisher": "N/A",
+                            "OpenAlex Volume": "N/A",
+                            "OpenAlex Issue": "N/A",
+                            "OpenAlex Pages": "N/A",
+                            "OpenAlex Evidence JSON": "{}",
+                            "Metadata Enrichment Source": "N/A",
+                            "Metadata Enrichment Confidence": "none",
                             "Scholar Detail Fields JSON": json.dumps(bib, ensure_ascii=False),
                             "Target Author Query": "N/A",
                             "Target Author Position": "N/A",
@@ -1614,11 +1940,18 @@ def main():
                             "WoS Author Citations (Non-Self)": "N/A",
                             "WoS Author H-Index": "N/A"
                         })
+                    if args.openalex_enrich and extracted:
+                        import time
+                        limit = args.openalex_max_records if args.openalex_max_records and args.openalex_max_records > 0 else len(extracted)
+                        for idx, record in enumerate(extracted[:limit]):
+                            logger.info(f"[fallback {idx+1}/{min(limit, len(extracted))}] Querying OpenAlex for: '{record.get('Title', '')[:50]}...'")
+                            enrich_record_with_openalex(record, args.openalex_api_key, args.openalex_min_confidence)
+                            time.sleep(0.12 if args.openalex_api_key else 0.35)
                     for record in extracted:
                         annotate_target_author(record, args.target_author, args.target_author_position, args.author_highlight)
                         annotate_corresponding_author(record, args.corresponding_author, args.corresponding_author_position, args.author_highlight, args.fetch_corresponding)
                     df = pd.DataFrame(extracted)
-                    df_sorted = df.sort_values(by="Citations", ascending=False)
+                    df_sorted = sort_output_dataframe(df, args.output_sort)
                     df_sorted.to_csv(args.output, index=False, encoding="utf-8-sig")
                     logger.info(f"Successfully saved scholarly fallback data to: {args.output}")
                     write_citation_exports(df_sorted.to_dict("records"), args.output, args.citation_format, args.author_highlight)
@@ -1638,7 +1971,6 @@ def main():
                     base_path, _ = os.path.splitext(args.output)
                     stats_json_path = f"{base_path}_stats.json"
                     try:
-                        import json
                         with open(stats_json_path, "w", encoding="utf-8") as f:
                             json.dump(stats_summary, f, indent=4, ensure_ascii=False)
                     except Exception:
