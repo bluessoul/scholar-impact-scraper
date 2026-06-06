@@ -120,12 +120,12 @@ function remindFirstRunLoginSetup(profileDir) {
 }
 
 function writeJcrOfflineReminderArtifact() {
-  const content = `# JCR 2024 Offline Data Option\n\n` +
-    `Before launching Playwright for live Clarivate/JCR lookup, you may be able to save time by using a local JCR 2024 quartile raw-data file.\n\n` +
+  const content = `# Local JCR Data Option\n\n` +
+    `Before launching Playwright for live Clarivate/JCR lookup, you may be able to save time by using a user-provided local JCR quartile raw-data file for the relevant year.\n\n` +
     `Suggested workflow:\n\n` +
-    `1. Search the web yourself for a publicly shared JCR 2024 quartile/partition raw-data file.\n` +
+    `1. Prepare a JCR quartile/partition raw-data file for the year you need.\n` +
     `2. Verify that the source allows your intended use and redistribution, if any.\n` +
-    `3. Place the local file under \`data/jcr2024/\` or another local path.\n` +
+    `3. Place the local file under \`data/jcr-local/\` or another local path.\n` +
     `4. Do not commit the raw data file unless redistribution is clearly allowed.\n\n` +
     `If you do not want to use an offline file, continue with live lookup. The script will open a Playwright browser and use your authorized Clarivate/JCR access.\n\n` +
     `To skip this reminder in automation, pass \`--skip-offline-reminder\` or set \`JCR_SKIP_OFFLINE_REMINDER=1\`.\n\n` +
@@ -145,10 +145,10 @@ async function promptJcrOfflineDataOption() {
   }
 
   console.log('\n' + '='.repeat(80));
-  console.log('[JCR Offline Data Option]');
-  console.log('You may save time by using a local JCR 2024 quartile/partition raw-data file.');
-  console.log('Search the web yourself for a publicly shared JCR 2024 file, verify permission,');
-  console.log('then place it under data/jcr2024/ or another local path.');
+  console.log('[Local JCR Data Option]');
+  console.log('You may save time by using a local JCR quartile/partition raw-data file.');
+  console.log('Prepare a file for the target JCR year, verify permission,');
+  console.log('then place it under data/jcr-local/ or another local path.');
   console.log('');
   console.log('If you choose live lookup, this script will continue with Playwright and your');
   console.log('authorized Clarivate/JCR account. Live lookup does not bypass access control.');
@@ -168,14 +168,14 @@ async function promptJcrOfflineDataOption() {
   });
 
   const answer = await new Promise(resolve => {
-    rl.question('Do you want to pause now and use/find an offline JCR 2024 file? (y/N): ', resolve);
+    rl.question('Do you want to pause now and use/find a local JCR data file? (y/N): ', resolve);
   });
   rl.close();
 
   const normalized = String(answer || '').trim().toLowerCase();
   if (normalized === 'y' || normalized === 'yes') {
     console.log('\n[JCR Offline Option] Stopping before browser launch.');
-    console.log('[JCR Offline Option] Put your local JCR 2024 file under data/jcr2024/ or another local path.');
+    console.log('[JCR Offline Option] Put your local JCR data file under data/jcr-local/ or another local path.');
     console.log('[JCR Offline Option] Re-run with --skip-offline-reminder when you want to proceed with live lookup.\n');
     return false;
   }
@@ -2094,7 +2094,7 @@ async function startInteractiveConsole(page, context, options, results) {
     console.log('Usage 1 (Interactive): node fetch.js [--chrome-data <path>] [--profile <profile>]');
     console.log('Usage 2 (Single Input): node fetch.js --journal "1879-1069" --year 2026 [--chrome-data <path>]');
     console.log('Usage 3 (Batch File):  node fetch.js --input <input.json> [--chrome-data <path>]');
-    console.log('Optional: pass --skip-offline-reminder to skip the JCR 2024 offline-data prompt.');
+    console.log('Optional: pass --skip-offline-reminder to skip the local JCR data prompt.');
     console.log('Optional: pass --skip-login-reminder to skip the first-run login setup reminder.');
     process.exit(1);
   }

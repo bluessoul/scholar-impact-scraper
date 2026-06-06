@@ -40,6 +40,11 @@ python {baseDir}/scholar_playwright.py --user-id <Scholar_ID> --wos-id <WoS_ID> 
 ```
 
 Optional flags include `--fetch-doi`, `--fetch-wos-ut`, and `--no-wos-ut`.
+Use `--refine auto` or `--refine all` to open Google Scholar detail panels and enrich rows with `Journal`, `Conference`, `Volume`, `Issue`, `Pages`, `Publisher`, `Description`, and raw `Scholar Detail Fields JSON` when those fields are visible.
+DOI resolution is multi-source. DOI values visible in Google Scholar detail panels are used first. When `--fetch-doi` is enabled with the default `--refine auto`, the script opens Scholar detail panels up to `--refine-limit` before querying Crossref. Only records that still have no DOI are queried against Crossref by title. CSV output records `DOI Source`, `DOI Confidence`, and `DOI Evidence JSON` for downstream verification.
+CSV output is always saved. By default, the script asks whether to also export references as APA, MLA, Chicago, Harvard, LaTeX/BibTeX, AMA/Numeric, GB/T 7714, or all formats. For automation, pass `--citation-format none`, `--citation-format apa`, `--citation-format gbt`, or comma-separated values such as `--citation-format apa,latex,gbt`.
+Use `--target-author "<Name>"` or `--target-author-position <N>` to add target-author columns (`Target Author Position`, `Target Author Matched Name`, `Highlighted Authors`) and highlight that author in reference exports. Highlight styles are `--author-highlight bold`, `underline`, `both`, or `none`.
+Corresponding-author support has two layers. First, a user can provide `--corresponding-author "<Name>"` or `--corresponding-author-position <N>`, which takes priority. Second, `--fetch-corresponding` tries DOI metadata lookup with OpenAlex first and Crossref as a no-guess fallback when structured corresponding-author data is unavailable. CSV output adds `Corresponding Author Position`, `Corresponding Author Matched Name`, `Is Target Author Corresponding`, `Highlighted Corresponding Authors`, `Corresponding Evidence Source`, `Corresponding Confidence`, and `Corresponding Evidence JSON`.
 
 Run ORCID extraction:
 

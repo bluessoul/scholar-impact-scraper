@@ -13,6 +13,7 @@ import asyncio
 import logging
 import argparse
 import urllib.parse
+import json
 import requests
 import pandas as pd
 from playwright.async_api import async_playwright
@@ -75,13 +76,55 @@ def remind_first_run_login_setup(profile_dir: str, uses_wos: bool) -> None:
     write_first_run_login_setup(profile_dir)
 
 
-def fetch_doi_via_crossref(title: str) -> str:
+DOI_PATTERN = re.compile(r"\b10\.\d{4,9}/[^\s\"<>]+", re.IGNORECASE)
+
+def normalize_title_for_match(title: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", clean_bib_value(title).lower())
+
+def title_similarity(left: str, right: str) -> float:
+    left_norm = normalize_title_for_match(left)
+    right_norm = normalize_title_for_match(right)
+    if not left_norm or not right_norm:
+        return 0.0
+    if left_norm == right_norm:
+        return 1.0
+    shorter, longer = sorted([left_norm, right_norm], key=len)
+    return len(shorter) / len(longer) if shorter and shorter in longer else 0.0
+
+def extract_doi_from_text(text: str) -> str:
+    text = clean_bib_value(text)
+    if not text:
+        return ""
+    text = text.replace("https://doi.org/", "").replace("http://doi.org/", "").replace("doi:", "")
+    match = DOI_PATTERN.search(text)
+    if not match:
+        return ""
+    return match.group(0).rstrip(".,;)")
+
+def format_doi_url(doi: str) -> str:
+    clean_doi = normalize_doi(doi)
+    return f"https://doi.org/{clean_doi}" if clean_doi else "N/A"
+
+def extract_doi_from_scholar_details(detail_fields: dict) -> dict:
+    for label, value in detail_fields.items():
+        combined = f"{label} {value}"
+        doi = extract_doi_from_text(combined)
+        if doi:
+            return {
+                "doi": format_doi_url(doi),
+                "source": "Google Scholar detail",
+                "confidence": "high" if "doi" in label.strip().lower() else "medium",
+                "evidence": {"field": label, "value": value}
+            }
+    return {"doi": "N/A", "source": "N/A", "confidence": "none", "evidence": {}}
+
+def fetch_doi_evidence_via_crossref(title: str) -> dict:
     """
     Queries Crossref API to find the DOI of a paper by its title (Option 2).
-    Returns 'https://doi.org/{doi}' if found, else 'N/A'.
+    Returns a structured evidence object with DOI, source, confidence, and match metadata.
     """
     if not title or title == "N/A":
-        return "N/A"
+        return {"doi": "N/A", "source": "Crossref", "confidence": "none", "evidence": {"error": "missing title"}}
         
     encoded_title = urllib.parse.quote_plus(title)
     url = f"https://api.crossref.org/works?query.title={encoded_title}&rows=1"
@@ -98,11 +141,29 @@ def fetch_doi_via_crossref(title: str) -> str:
                 primary = items[0]
                 doi = primary.get("DOI")
                 if doi:
-                    return f"https://doi.org/{doi}"
-        return "N/A"
+                    returned_title = (primary.get("title") or [""])[0]
+                    score = title_similarity(title, returned_title)
+                    confidence = "high" if score >= 0.92 else "medium" if score >= 0.75 else "low"
+                    return {
+                        "doi": format_doi_url(doi),
+                        "source": "Crossref",
+                        "confidence": confidence,
+                        "evidence": {
+                            "query_title": title,
+                            "matched_title": returned_title,
+                            "similarity": round(score, 3),
+                            "crossref_score": primary.get("score"),
+                            "publisher": primary.get("publisher"),
+                            "issued": primary.get("issued")
+                        }
+                    }
+        return {"doi": "N/A", "source": "Crossref", "confidence": "none", "evidence": {"query_title": title, "error": "no DOI returned"}}
     except Exception as e:
         logger.warning(f"Crossref lookup failed for '{title[:40]}...': {e}")
         raise
+
+def fetch_doi_via_crossref(title: str) -> str:
+    return fetch_doi_evidence_via_crossref(title).get("doi", "N/A")
 
 # Set up logging
 logging.basicConfig(
@@ -113,6 +174,470 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+CITATION_FORMATS = ["apa", "mla", "chicago", "harvard", "latex", "ama", "gbt"]
+CITATION_FORMAT_LABELS = {
+    "apa": "APA",
+    "mla": "MLA",
+    "chicago": "Chicago",
+    "harvard": "Harvard",
+    "latex": "LaTeX/BibTeX",
+    "ama": "AMA/Numeric",
+    "gbt": "GB/T 7714",
+}
+
+def clean_bib_value(value) -> str:
+    if value is None:
+        return ""
+    text = str(value).strip()
+    return "" if text in ("", "N/A", "nan", "None") else text
+
+def split_authors(authors: str) -> list:
+    authors = clean_bib_value(authors)
+    if not authors:
+        return []
+    delimiter = ";" if ";" in authors else ","
+    return [part.strip() for part in authors.split(delimiter) if part.strip()]
+
+def normalize_author_name(name: str) -> str:
+    return re.sub(r"[\W_]+", "", clean_bib_value(name).lower(), flags=re.UNICODE)
+
+def parse_author_position(position) -> int:
+    try:
+        parsed = int(position)
+        return parsed if parsed > 0 else 0
+    except (TypeError, ValueError):
+        return 0
+
+def first_author_position(value) -> int:
+    for part in str(value or "").split(";"):
+        parsed = parse_author_position(part.strip())
+        if parsed:
+            return parsed
+    return 0
+
+def find_target_author(authors: str, target_author: str = "", target_position: int = 0) -> tuple:
+    names = split_authors(authors)
+    if not names:
+        return 0, ""
+    position = parse_author_position(target_position)
+    if 1 <= position <= len(names):
+        return position, names[position - 1]
+    query = normalize_author_name(target_author)
+    if not query:
+        return 0, ""
+    for idx, name in enumerate(names, 1):
+        normalized = normalize_author_name(name)
+        if normalized and (query == normalized or query in normalized or normalized in query):
+            return idx, name
+    return 0, ""
+
+def apply_author_highlight(text: str, highlight_style: str = "bold", output_style: str = "text") -> str:
+    text = clean_bib_value(text)
+    style = (highlight_style or "none").strip().lower()
+    if not text or style in ("none", "no", "off"):
+        return text
+    if output_style == "latex":
+        if style == "bold":
+            return f"\\textbf{{{text}}}"
+        if style == "underline":
+            return f"\\underline{{{text}}}"
+        if style == "both":
+            return f"\\underline{{\\textbf{{{text}}}}}"
+        return text
+    if style == "bold":
+        return f"**{text}**"
+    if style == "underline":
+        return f"<u>{text}</u>"
+    if style == "both":
+        return f"**<u>{text}</u>**"
+    return text
+
+def build_highlighted_authors(authors: str, target_position: int, highlight_style: str = "bold", output_style: str = "text") -> str:
+    names = split_authors(authors)
+    position = parse_author_position(target_position)
+    if not names or not (1 <= position <= len(names)):
+        return authors
+    highlighted = []
+    for idx, name in enumerate(names, 1):
+        highlighted.append(apply_author_highlight(name, highlight_style, output_style) if idx == position else name)
+    return ", ".join(highlighted)
+
+def annotate_target_author(record: dict, target_author: str = "", target_position: int = 0, highlight_style: str = "bold") -> None:
+    position, matched_name = find_target_author(record.get("Authors", ""), target_author, target_position)
+    record["Target Author Query"] = clean_bib_value(target_author) or (str(target_position) if parse_author_position(target_position) else "N/A")
+    record["Target Author Position"] = position if position else "N/A"
+    record["Target Author Matched Name"] = matched_name or "N/A"
+    record["Highlighted Authors"] = build_highlighted_authors(record.get("Authors", ""), position, highlight_style) if position else record.get("Authors", "N/A")
+
+def normalize_doi(doi: str) -> str:
+    text = clean_bib_value(doi)
+    if not text:
+        return ""
+    match = DOI_PATTERN.search(text)
+    if match:
+        return match.group(0).rstrip(".,;)")
+    text = re.sub(r"(?i)^https?://(?:dx\.)?doi\.org/", "", text)
+    text = re.sub(r"(?i)^doi:\s*", "", text)
+    return text.strip().rstrip(".,;)")
+
+def fetch_openalex_corresponding_authors(doi: str) -> dict:
+    clean_doi = normalize_doi(doi)
+    if not clean_doi:
+        return {"source": "OpenAlex", "confidence": "none", "error": "missing DOI", "authors": []}
+    doi_url = f"https://doi.org/{clean_doi}"
+    url = "https://api.openalex.org/works"
+    params = {
+        "filter": f"doi:{doi_url}",
+        "select": "id,doi,authorships,corresponding_author_ids",
+        "per-page": 1,
+    }
+    try:
+        response = requests.get(url, params=params, timeout=15)
+        response.raise_for_status()
+        results = response.json().get("results", [])
+        if not results:
+            return {"source": "OpenAlex", "confidence": "none", "error": "no matching OpenAlex work", "authors": []}
+        work = results[0]
+        corresponding_ids = set(work.get("corresponding_author_ids") or [])
+        authors = []
+        for idx, authorship in enumerate(work.get("authorships") or [], 1):
+            author = authorship.get("author") or {}
+            author_id = author.get("id", "")
+            raw_name = authorship.get("raw_author_name") or author.get("display_name", "")
+            if authorship.get("is_corresponding") is True or (author_id and author_id in corresponding_ids):
+                authors.append({
+                    "name": raw_name,
+                    "position": idx,
+                    "openalex_author_id": author_id,
+                })
+        if authors:
+            return {"source": "OpenAlex", "confidence": "high", "error": "", "authors": authors}
+        return {"source": "OpenAlex", "confidence": "none", "error": "OpenAlex work has no corresponding-author flag", "authors": []}
+    except Exception as exc:
+        return {"source": "OpenAlex", "confidence": "none", "error": str(exc), "authors": []}
+
+def fetch_crossref_corresponding_authors(doi: str) -> dict:
+    clean_doi = normalize_doi(doi)
+    if not clean_doi:
+        return {"source": "Crossref", "confidence": "none", "error": "missing DOI", "authors": []}
+    url = f"https://api.crossref.org/works/{urllib.parse.quote(clean_doi, safe='')}"
+    try:
+        response = requests.get(url, timeout=15)
+        response.raise_for_status()
+        return {"source": "Crossref", "confidence": "none", "error": "no structured corresponding-author field", "authors": []}
+    except Exception as exc:
+        return {"source": "Crossref", "confidence": "none", "error": str(exc), "authors": []}
+
+def annotate_corresponding_author(record: dict, corresponding_author: str = "", corresponding_position: int = 0, highlight_style: str = "bold", fetch_auto: bool = False) -> None:
+    manual_position, manual_name = find_target_author(record.get("Authors", ""), corresponding_author, corresponding_position)
+    query = clean_bib_value(corresponding_author) or (str(corresponding_position) if parse_author_position(corresponding_position) else "N/A")
+    record["Corresponding Author Query"] = query
+    record["Corresponding Author Position"] = manual_position if manual_position else "N/A"
+    record["Corresponding Author Matched Name"] = manual_name or "N/A"
+    record["Is Target Author Corresponding"] = "N/A"
+    record["Highlighted Corresponding Authors"] = record.get("Authors", "N/A")
+    record["Corresponding Evidence Source"] = "Manual" if manual_position else "N/A"
+    record["Corresponding Confidence"] = "user-specified" if manual_position else "none"
+    record["Corresponding Evidence JSON"] = "{}"
+
+    if manual_position:
+        record["Highlighted Corresponding Authors"] = build_highlighted_authors(record.get("Authors", ""), manual_position, highlight_style)
+    elif fetch_auto:
+        evidence = fetch_openalex_corresponding_authors(record.get("DOI", ""))
+        if not evidence.get("authors"):
+            crossref_evidence = fetch_crossref_corresponding_authors(record.get("DOI", ""))
+            evidence = {
+                "source": "OpenAlex; Crossref",
+                "confidence": "none",
+                "error": f"OpenAlex: {evidence.get('error', '')}; Crossref: {crossref_evidence.get('error', '')}",
+                "authors": [],
+            }
+        record["Corresponding Evidence JSON"] = json.dumps(evidence, ensure_ascii=False)
+        if evidence.get("authors"):
+            names = [author.get("name", "") for author in evidence["authors"] if author.get("name")]
+            positions = []
+            matched_positions = []
+            for author in evidence["authors"]:
+                pos, matched_name = find_target_author(record.get("Authors", ""), author.get("name", ""), author.get("position", 0))
+                if pos:
+                    matched_positions.append(pos)
+                    positions.append(str(pos))
+            record["Corresponding Author Position"] = "; ".join(positions) if positions else "N/A"
+            record["Corresponding Author Matched Name"] = "; ".join(names) if names else "N/A"
+            record["Corresponding Evidence Source"] = evidence.get("source", "OpenAlex")
+            record["Corresponding Confidence"] = evidence.get("confidence", "high")
+            if matched_positions:
+                highlighted = record.get("Authors", "N/A")
+                for pos in matched_positions:
+                    highlighted = build_highlighted_authors(highlighted, pos, highlight_style)
+                record["Highlighted Corresponding Authors"] = highlighted
+
+    target_position = parse_author_position(record.get("Target Author Position"))
+    corr_positions = {
+        parse_author_position(part)
+        for part in str(record.get("Corresponding Author Position", "")).split(";")
+        if parse_author_position(part)
+    }
+    if target_position and corr_positions:
+        record["Is Target Author Corresponding"] = "Yes" if target_position in corr_positions else "No"
+
+def author_last_first(author: str) -> str:
+    parts = author.split()
+    if len(parts) <= 1:
+        return author
+    return f"{parts[-1]}, {' '.join(parts[:-1])}"
+
+def author_initials(author: str) -> str:
+    parts = author.split()
+    if len(parts) <= 1:
+        return author
+    initials = " ".join(f"{p[0]}." for p in parts[:-1] if p)
+    return f"{parts[-1]}, {initials}".strip()
+
+def format_author_list(authors: str, style: str, target_position: int = 0, highlight_style: str = "none") -> str:
+    names = split_authors(authors)
+    if not names:
+        return ""
+    if style == "mla":
+        if len(names) == 1:
+            formatted_name = author_last_first(names[0])
+            return apply_author_highlight(formatted_name, highlight_style) if parse_author_position(target_position) == 1 else formatted_name
+        first_author = author_last_first(names[0])
+        if parse_author_position(target_position) == 1:
+            first_author = apply_author_highlight(first_author, highlight_style)
+        return f"{first_author}, et al."
+    if style == "ama":
+        compact = []
+        for idx, name in enumerate(names[:6], 1):
+            parts = name.split()
+            if len(parts) <= 1:
+                formatted_name = name
+            else:
+                formatted_name = parts[-1] + "".join(p[0] for p in parts[:-1] if p)
+            compact.append(apply_author_highlight(formatted_name, highlight_style) if idx == parse_author_position(target_position) else formatted_name)
+        if len(names) > 6:
+            compact.append("et al")
+        return ", ".join(compact)
+    if style == "gbt":
+        visible_names = []
+        for idx, name in enumerate(names[:3], 1):
+            visible_names.append(apply_author_highlight(name, highlight_style) if idx == parse_author_position(target_position) else name)
+        suffix = ", 等" if len(names) > 3 else ""
+        return ", ".join(visible_names) + suffix
+    formatted = [author_initials(name) for name in names]
+    position = parse_author_position(target_position)
+    if 1 <= position <= len(formatted):
+        formatted[position - 1] = apply_author_highlight(formatted[position - 1], highlight_style)
+    if len(formatted) == 1:
+        return formatted[0]
+    if style == "apa":
+        return ", ".join(formatted[:-1]) + ", & " + formatted[-1]
+    return ", ".join(formatted)
+
+def get_publication_year(row: dict) -> str:
+    pub_date = clean_bib_value(row.get("Publication Date"))
+    year = clean_bib_value(row.get("Year"))
+    source = pub_date or year
+    match = re.search(r"\b(18|19|20)\d{2}\b", source)
+    return match.group(0) if match else source
+
+def get_venue(row: dict) -> str:
+    return (
+        clean_bib_value(row.get("Journal"))
+        or clean_bib_value(row.get("Conference"))
+        or clean_bib_value(row.get("Journal/Venue"))
+    )
+
+def join_parts(parts: list, separator: str = ". ") -> str:
+    cleaned = [part.strip().rstrip(".") for part in parts if clean_bib_value(part)]
+    return separator.join(cleaned) + ("." if cleaned else "")
+
+def bibtex_key(row: dict, index: int) -> str:
+    authors = split_authors(row.get("Authors", ""))
+    first_author = re.sub(r"[^A-Za-z0-9]", "", authors[0].split()[-1]) if authors else "work"
+    year = re.sub(r"\D", "", get_publication_year(row)) or "nd"
+    title_word = ""
+    for word in re.findall(r"[A-Za-z0-9]+", clean_bib_value(row.get("Title"))):
+        if len(word) > 3:
+            title_word = word
+            break
+    return f"{first_author}{year}{title_word or index}"
+
+def format_citation(row: dict, style: str, index: int, highlight_style: str = "none") -> str:
+    title = clean_bib_value(row.get("Title"))
+    target_position = parse_author_position(row.get("Target Author Position")) or first_author_position(row.get("Corresponding Author Position"))
+    authors = format_author_list(row.get("Authors", ""), style, target_position, highlight_style)
+    year = get_publication_year(row)
+    venue = get_venue(row)
+    volume = clean_bib_value(row.get("Volume"))
+    issue = clean_bib_value(row.get("Issue"))
+    pages = clean_bib_value(row.get("Pages"))
+    publisher = clean_bib_value(row.get("Publisher"))
+    doi = clean_bib_value(row.get("DOI"))
+    if doi and not doi.lower().startswith(("http://", "https://")) and doi != "N/A":
+        doi = f"https://doi.org/{doi}"
+
+    volume_issue = volume + (f"({issue})" if issue else "")
+    if style == "apa":
+        venue_part = venue
+        if volume_issue:
+            venue_part += f", {volume_issue}" if venue_part else volume_issue
+        if pages:
+            venue_part += f", {pages}" if venue_part else pages
+        return join_parts([authors, f"({year})" if year else "", title, venue_part, doi])
+    if style == "mla":
+        parts = [authors, f'"{title}"' if title else "", venue]
+        tail = []
+        if volume:
+            tail.append(f"vol. {volume}")
+        if issue:
+            tail.append(f"no. {issue}")
+        if publisher:
+            tail.append(publisher)
+        if year:
+            tail.append(year)
+        if pages:
+            tail.append(f"pp. {pages}")
+        return join_parts(parts + [", ".join(tail), doi])
+    if style == "chicago":
+        issue_part = f", no. {issue}" if issue else ""
+        year_part = f" ({year})" if year else ""
+        pages_part = f": {pages}" if pages else ""
+        venue_part = f"{venue} {volume}{issue_part}{year_part}{pages_part}".strip()
+        return join_parts([authors, f'"{title}"' if title else "", venue_part, publisher, doi])
+    if style == "harvard":
+        author_year = f"{authors} {year}" if authors and year else authors or year
+        quoted_title = f"'{title}'" if title else ""
+        tail = []
+        if venue:
+            tail.append(venue)
+        if volume:
+            tail.append(f"vol. {volume}")
+        if issue:
+            tail.append(f"no. {issue}")
+        if pages:
+            tail.append(f"pp. {pages}")
+        if publisher:
+            tail.append(publisher)
+        if doi:
+            tail.append(doi)
+        return join_parts([author_year, quoted_title, ", ".join(tail)])
+    if style == "ama":
+        citation = f"{index}. "
+        body = join_parts([authors, title], ". ")
+        journal_bits = venue
+        if year:
+            journal_bits += f". {year}" if journal_bits else year
+        if volume_issue:
+            journal_bits += f";{volume_issue}"
+        if pages:
+            journal_bits += f":{pages}"
+        return citation + join_parts([body, journal_bits, doi])
+    if style == "gbt":
+        authors_gbt = format_author_list(row.get("Authors", ""), "gbt", target_position, highlight_style)
+        doc_type = "C" if clean_bib_value(row.get("Conference")) and not clean_bib_value(row.get("Journal")) else "J"
+        title_part = f"{title}[{doc_type}]" if title else ""
+        source = venue
+        if year:
+            source += f", {year}" if source else year
+        if volume:
+            source += f", {volume}"
+        if issue:
+            source += f"({issue})"
+        if pages:
+            source += f": {pages}"
+        return join_parts([authors_gbt, title_part, source, doi])
+    if style == "latex":
+        fields = {
+            "title": title,
+            "author": " and ".join(
+                apply_author_highlight(name, highlight_style, "latex") if idx == target_position else name
+                for idx, name in enumerate(split_authors(row.get("Authors", "")), 1)
+            ),
+            "journal": clean_bib_value(row.get("Journal")) or clean_bib_value(row.get("Journal/Venue")),
+            "booktitle": clean_bib_value(row.get("Conference")),
+            "year": year,
+            "volume": volume,
+            "number": issue,
+            "pages": pages,
+            "publisher": publisher,
+            "doi": doi.replace("https://doi.org/", "") if doi else "",
+        }
+        entry_type = "inproceedings" if fields["booktitle"] and not fields["journal"] else "article"
+        lines = [f"@{entry_type}{{{bibtex_key(row, index)},"]
+        for key, value in fields.items():
+            if value:
+                lines.append(f"  {key} = {{{value}}},")
+        lines[-1] = lines[-1].rstrip(",")
+        lines.append("}")
+        return "\n".join(lines)
+    return ""
+
+def resolve_citation_formats(citation_format: str) -> list:
+    requested = (citation_format or "ask").strip().lower()
+    if requested in ("", "ask"):
+        if not sys.stdin.isatty():
+            logger.info("Non-interactive terminal detected; skipping optional reference-format export.")
+            return []
+        print("\nReference-format export is optional. CSV will always be saved.")
+        print("Choose citation output format(s):")
+        print("  1. APA")
+        print("  2. MLA")
+        print("  3. Chicago")
+        print("  4. Harvard")
+        print("  5. LaTeX/BibTeX")
+        print("  6. AMA/Numeric")
+        print("  7. GB/T 7714")
+        print("  8. All")
+        choice = input("Enter numbers or names separated by commas, or press Enter to skip: ").strip().lower()
+        if not choice:
+            return []
+        requested = choice
+    if requested in ("none", "skip", "no"):
+        return []
+    tokens = [token.strip().lower() for token in re.split(r"[,;/\s]+", requested) if token.strip()]
+    if "all" in tokens or "8" in tokens:
+        return CITATION_FORMATS
+    aliases = {
+        "1": "apa",
+        "2": "mla",
+        "3": "chicago",
+        "4": "harvard",
+        "5": "latex",
+        "bibtex": "latex",
+        "tex": "latex",
+        "6": "ama",
+        "numeric": "ama",
+        "ama/numeric": "ama",
+        "7": "gbt",
+        "gb": "gbt",
+        "gbt7714": "gbt",
+        "gb/t": "gbt",
+        "gb/t7714": "gbt",
+        "gb/t-7714": "gbt",
+    }
+    formats = []
+    for token in tokens:
+        fmt = aliases.get(token, token)
+        if fmt in CITATION_FORMATS and fmt not in formats:
+            formats.append(fmt)
+        else:
+            logger.warning(f"Unknown citation format ignored: {token}")
+    return formats
+
+def write_citation_exports(records: list, output_csv: str, citation_format: str, highlight_style: str = "none") -> None:
+    formats = resolve_citation_formats(citation_format)
+    if not formats:
+        return
+    base_path, _ = os.path.splitext(output_csv)
+    for fmt in formats:
+        ext = "bib" if fmt == "latex" else "txt"
+        output_path = f"{base_path}_{fmt}.{ext}"
+        content = "\n\n".join(format_citation(row, fmt, idx, highlight_style) for idx, row in enumerate(records, 1))
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(content + ("\n" if content else ""))
+        logger.info(f"{CITATION_FORMAT_LABELS[fmt]} citations saved to: {os.path.abspath(output_path)}")
 
 async def handle_captcha_if_needed(page) -> None:
     """
@@ -339,7 +864,7 @@ async def scrape_wos_citations(orcid_id: str, page, fetch_wos_ut: bool = False) 
         "sum_cited_without_self": wos_sum_cited_without_self
     }
 
-async def scrape_scholar_profile(profile_url: str, output_csv: str, max_clicks: int, refine_mode: str = "auto", refine_limit: int = 10, fetch_doi: bool = False, wos_id: str = None, fetch_wos_ut: bool = False) -> None:
+async def scrape_scholar_profile(profile_url: str, output_csv: str, max_clicks: int, refine_mode: str = "auto", refine_limit: int = 10, fetch_doi: bool = False, wos_id: str = None, fetch_wos_ut: bool = False, citation_format: str = "ask", target_author: str = "", target_author_position: int = 0, author_highlight: str = "bold", corresponding_author: str = "", corresponding_author_position: int = 0, fetch_corresponding: bool = False) -> None:
     """
     Launches a non-headless Playwright Chromium instance, navigates to the Scholar profile,
     handles dynamic pagination with "Show more", pauses for manual CAPTCHA solving,
@@ -562,7 +1087,30 @@ async def scrape_scholar_profile(profile_url: str, output_csv: str, max_clicks: 
                 "WoS Citations": "N/A",  # Default to N/A
                 "Year": year,
                 "Publication Date": year,  # Default to Year
+                "Journal": "N/A",
+                "Conference": "N/A",
+                "Volume": "N/A",
+                "Issue": "N/A",
+                "Pages": "N/A",
+                "Publisher": "N/A",
+                "Description": "N/A",
                 "DOI": "N/A",  # Default to N/A
+                "DOI Source": "N/A",
+                "DOI Confidence": "none",
+                "DOI Evidence JSON": "{}",
+                "Scholar Detail Fields JSON": "{}",
+                "Target Author Query": "N/A",
+                "Target Author Position": "N/A",
+                "Target Author Matched Name": "N/A",
+                "Highlighted Authors": authors,
+                "Corresponding Author Query": "N/A",
+                "Corresponding Author Position": "N/A",
+                "Corresponding Author Matched Name": "N/A",
+                "Is Target Author Corresponding": "N/A",
+                "Highlighted Corresponding Authors": authors,
+                "Corresponding Evidence Source": "N/A",
+                "Corresponding Confidence": "none",
+                "Corresponding Evidence JSON": "{}",
                 "Scholar Author Citations": scholar_citations,
                 "Scholar Author H-Index": scholar_h_index,
                 "WoS Author Citations": "N/A",
@@ -576,11 +1124,15 @@ async def scrape_scholar_profile(profile_url: str, output_csv: str, max_clicks: 
         # ==========================================
         refine_indices = []
         if refine_mode == "auto":
-            # Auto-detect papers with truncated authors
+            # Auto-detect papers that need detail-panel refinement.
+            # DOI resolution uses Scholar detail panels first, then Crossref for records still missing DOI.
             for idx, data in enumerate(extracted_data):
-                if "..." in data["Authors"]:
+                if fetch_doi or "..." in data["Authors"]:
                     refine_indices.append(idx)
-            logger.info(f"Auto-detected {len(refine_indices)} papers with truncated author lists for refinement.")
+            if fetch_doi:
+                logger.info(f"Auto-selected {len(refine_indices)} papers for Scholar detail DOI/metadata refinement before Crossref fallback.")
+            else:
+                logger.info(f"Auto-detected {len(refine_indices)} papers with truncated author lists for refinement.")
         elif refine_mode == "all":
             refine_indices = list(range(len(extracted_data)))
             logger.info(f"Selected all {len(refine_indices)} papers for refinement.")
@@ -641,30 +1193,58 @@ async def scrape_scholar_profile(profile_url: str, output_csv: str, max_clicks: 
                     await page.wait_for_selector("#gsc_oci_table", timeout=12000)
                     await handle_captcha_if_needed(page)
 
-                    # Extract full authors list and publication date
+                    # Extract all visible Google Scholar detail fields.
                     fields = await page.locator(".gsc_oci_field").all_inner_texts()
                     values = await page.locator(".gsc_oci_value").all_inner_texts()
 
-                    full_authors = None
-                    pub_date = None
+                    detail_fields = {}
                     for f, v in zip(fields, values):
-                        field_name = f.strip().lower()
-                        if field_name == "authors":
-                            full_authors = v.strip()
-                        elif field_name == "publication date":
-                            pub_date = v.strip()
+                        field_label = f.strip()
+                        field_value = v.strip()
+                        if not field_label or not field_value:
+                            continue
+                        if field_label in detail_fields:
+                            detail_fields[field_label] = f"{detail_fields[field_label]}; {field_value}"
+                        else:
+                            detail_fields[field_label] = field_value
 
-                    if full_authors:
-                        # Success! Update the author list
-                        logger.info(f"Successfully refined author list: {full_authors}")
-                        extracted_data[idx]["Authors"] = full_authors
+                    extracted_data[idx]["Scholar Detail Fields JSON"] = json.dumps(detail_fields, ensure_ascii=False)
+                    doi_evidence = extract_doi_from_scholar_details(detail_fields)
+                    if doi_evidence.get("doi") and doi_evidence["doi"] != "N/A":
+                        extracted_data[idx]["DOI"] = doi_evidence["doi"]
+                        extracted_data[idx]["DOI Source"] = doi_evidence["source"]
+                        extracted_data[idx]["DOI Confidence"] = doi_evidence["confidence"]
+                        extracted_data[idx]["DOI Evidence JSON"] = json.dumps(doi_evidence.get("evidence", {}), ensure_ascii=False)
+
+                    detail_field_map = {
+                        "authors": "Authors",
+                        "publication date": "Publication Date",
+                        "journal": "Journal",
+                        "conference": "Conference",
+                        "volume": "Volume",
+                        "issue": "Issue",
+                        "pages": "Pages",
+                        "publisher": "Publisher",
+                        "description": "Description",
+                    }
+
+                    for field_label, field_value in detail_fields.items():
+                        column_name = detail_field_map.get(field_label.strip().lower())
+                        if column_name:
+                            extracted_data[idx][column_name] = field_value
+
+                    if extracted_data[idx].get("Journal", "N/A") != "N/A":
+                        extracted_data[idx]["Journal/Venue"] = extracted_data[idx]["Journal"]
+                    elif extracted_data[idx].get("Conference", "N/A") != "N/A":
+                        extracted_data[idx]["Journal/Venue"] = extracted_data[idx]["Conference"]
+
+                    if extracted_data[idx].get("Authors", "N/A") != "N/A":
+                        logger.info(f"Successfully refined author list: {extracted_data[idx]['Authors']}")
                     else:
                         logger.warning("Could not locate 'Authors' field in detail page.")
 
-                    if pub_date:
-                        # Success! Update the publication date
-                        logger.info(f"Successfully refined publication date: {pub_date}")
-                        extracted_data[idx]["Publication Date"] = pub_date
+                    if extracted_data[idx].get("Publication Date", "N/A") != "N/A":
+                        logger.info(f"Successfully refined publication date: {extracted_data[idx]['Publication Date']}")
                     else:
                         logger.warning("Could not locate 'Publication date' field in detail page.")
 
@@ -736,14 +1316,20 @@ async def scrape_scholar_profile(profile_url: str, output_csv: str, max_clicks: 
         # Fetching DOIs via Crossref (Option 2)
         # ==========================================
         if fetch_doi and extracted_data:
-            logger.info("Fetching DOIs via Crossref API (Option 2)...")
+            logger.info("Resolving missing DOIs via Crossref after Google Scholar detail extraction...")
             import time
             try:
                 for idx, data in enumerate(extracted_data):
+                    if clean_bib_value(data.get("DOI")):
+                        logger.info(f"[{idx+1}/{len(extracted_data)}] DOI already available from {data.get('DOI Source', 'existing source')}; skipping Crossref.")
+                        continue
                     title = data["Title"]
                     logger.info(f"[{idx+1}/{len(extracted_data)}] Querying Crossref DOI for: '{title[:50]}...'")
-                    doi = fetch_doi_via_crossref(title)
-                    extracted_data[idx]["DOI"] = doi
+                    doi_evidence = fetch_doi_evidence_via_crossref(title)
+                    extracted_data[idx]["DOI"] = doi_evidence.get("doi", "N/A")
+                    extracted_data[idx]["DOI Source"] = doi_evidence.get("source", "Crossref")
+                    extracted_data[idx]["DOI Confidence"] = doi_evidence.get("confidence", "none")
+                    extracted_data[idx]["DOI Evidence JSON"] = json.dumps(doi_evidence.get("evidence", {}), ensure_ascii=False)
                     # Polite rate-limiting delay for Crossref API
                     time.sleep(0.3)
             except Exception as e:
@@ -756,6 +1342,10 @@ async def scrape_scholar_profile(profile_url: str, output_csv: str, max_clicks: 
                 print("命令示例: python orcid_extractor.py --orcid [学者ORCID]")
                 print("="*70)
         
+        for record in extracted_data:
+            annotate_target_author(record, target_author, target_author_position, author_highlight)
+            annotate_corresponding_author(record, corresponding_author, corresponding_author_position, author_highlight, fetch_corresponding)
+
         # ==========================================
         # Sorting and Saving CSV & Stats Summary
         # ==========================================
@@ -769,6 +1359,8 @@ async def scrape_scholar_profile(profile_url: str, output_csv: str, max_clicks: 
             df_sorted.to_csv(output_csv, index=False, encoding="utf-8-sig")
             logger.info(f"Scraped data successfully saved to: {os.path.abspath(output_csv)}")
             logger.info(f"Total records saved: {len(df_sorted)}")
+
+            write_citation_exports(df_sorted.to_dict("records"), output_csv, citation_format, author_highlight)
             
             # Extract stats metrics for JSON & terminal card
             first_row = extracted_data[0]
@@ -873,6 +1465,44 @@ def main():
         action="store_false",
         help="Explicitly disable extraction of Web of Science Accession Numbers (UT)."
     )
+    parser.add_argument(
+        "--citation-format",
+        default="ask",
+        help="Optional reference export format: ask, none, apa, mla, chicago, harvard, latex/bibtex, ama, gbt/gbt7714, all, or comma-separated values."
+    )
+    parser.add_argument(
+        "--target-author",
+        default="",
+        help="Author name to locate in each publication's author list. Adds target author position columns and enables author highlighting in reference exports."
+    )
+    parser.add_argument(
+        "--target-author-position",
+        type=int,
+        default=0,
+        help="1-based author position to mark when the target author name is ambiguous or unavailable."
+    )
+    parser.add_argument(
+        "--author-highlight",
+        choices=["none", "bold", "underline", "both"],
+        default="bold",
+        help="Highlight style for the target author in reference exports and the Highlighted Authors CSV column."
+    )
+    parser.add_argument(
+        "--corresponding-author",
+        default="",
+        help="Manually specified corresponding author name. Manual values take priority over automatic metadata lookup."
+    )
+    parser.add_argument(
+        "--corresponding-author-position",
+        type=int,
+        default=0,
+        help="1-based manually specified corresponding author position."
+    )
+    parser.add_argument(
+        "--fetch-corresponding",
+        action="store_true",
+        help="Try to infer corresponding authors from metadata, using OpenAlex first and Crossref as a no-guess fallback."
+    )
     parser.set_defaults(fetch_wos_ut=None)
     
     args = parser.parse_args()
@@ -903,7 +1533,14 @@ def main():
             args.refine_limit, 
             args.fetch_doi,
             wos_id=args.wos_id,
-            fetch_wos_ut=fetch_wos_ut
+            fetch_wos_ut=fetch_wos_ut,
+            citation_format=args.citation_format,
+            target_author=args.target_author,
+            target_author_position=args.target_author_position,
+            author_highlight=args.author_highlight,
+            corresponding_author=args.corresponding_author,
+            corresponding_author_position=args.corresponding_author_position,
+            fetch_corresponding=args.fetch_corresponding
         ))
     except KeyboardInterrupt:
         logger.info("Process interrupted by user. Exiting.")
@@ -937,6 +1574,8 @@ def main():
                     extracted = []
                     for pub in publications:
                         bib = pub.get('bib', {})
+                        bib_doi = format_doi_url(bib.get('doi', bib.get('DOI', '')))
+                        bib_doi_found = bib_doi != "N/A"
                         extracted.append({
                             "Title": bib.get('title', 'N/A'),
                             "Authors": bib.get('author', 'N/A'),
@@ -945,17 +1584,44 @@ def main():
                             "WoS Citations": "N/A",
                             "Year": bib.get('pub_year', 'N/A'),
                             "Publication Date": bib.get('pub_year', 'N/A'),
-                            "DOI": "N/A",
+                            "Journal": bib.get('journal', 'N/A'),
+                            "Conference": bib.get('conference', bib.get('venue', 'N/A')),
+                            "Volume": bib.get('volume', 'N/A'),
+                            "Issue": bib.get('number', bib.get('issue', 'N/A')),
+                            "Pages": bib.get('pages', 'N/A'),
+                            "Publisher": bib.get('publisher', 'N/A'),
+                            "Description": bib.get('abstract', 'N/A'),
+                            "DOI": bib_doi,
+                            "DOI Source": "scholarly bib" if bib_doi_found else "N/A",
+                            "DOI Confidence": "medium" if bib_doi_found else "none",
+                            "DOI Evidence JSON": json.dumps({"bib_doi": bib.get('doi', bib.get('DOI', ''))}, ensure_ascii=False) if bib_doi_found else "{}",
+                            "Scholar Detail Fields JSON": json.dumps(bib, ensure_ascii=False),
+                            "Target Author Query": "N/A",
+                            "Target Author Position": "N/A",
+                            "Target Author Matched Name": "N/A",
+                            "Highlighted Authors": bib.get('author', 'N/A'),
+                            "Corresponding Author Query": "N/A",
+                            "Corresponding Author Position": "N/A",
+                            "Corresponding Author Matched Name": "N/A",
+                            "Is Target Author Corresponding": "N/A",
+                            "Highlighted Corresponding Authors": bib.get('author', 'N/A'),
+                            "Corresponding Evidence Source": "N/A",
+                            "Corresponding Confidence": "none",
+                            "Corresponding Evidence JSON": "{}",
                             "Scholar Author Citations": scholar_citations,
                             "Scholar Author H-Index": scholar_h_index,
                             "WoS Author Citations": "N/A",
                             "WoS Author Citations (Non-Self)": "N/A",
                             "WoS Author H-Index": "N/A"
                         })
+                    for record in extracted:
+                        annotate_target_author(record, args.target_author, args.target_author_position, args.author_highlight)
+                        annotate_corresponding_author(record, args.corresponding_author, args.corresponding_author_position, args.author_highlight, args.fetch_corresponding)
                     df = pd.DataFrame(extracted)
                     df_sorted = df.sort_values(by="Citations", ascending=False)
                     df_sorted.to_csv(args.output, index=False, encoding="utf-8-sig")
                     logger.info(f"Successfully saved scholarly fallback data to: {args.output}")
+                    write_citation_exports(df_sorted.to_dict("records"), args.output, args.citation_format, args.author_highlight)
                     
                     # Save stats summary companion JSON
                     stats_summary = {

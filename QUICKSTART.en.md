@@ -98,13 +98,13 @@ macOS/Linux:
 
 ## 7. Run JCR
 
-There are two JCR usage paths: use your own publicly shared JCR 2024 quartile raw-data file as an offline reference, or use your authorized Clarivate/JCR account with a Playwright automated browser to query live information from the website. The current scripts default to a visible browser window for login and verification; you can adapt the browser mode to headless in your own environment if appropriate. The public release does not bundle the full JCR 2024 raw file by default; local files can be placed under `data/jcr2024/`, but should not be committed unless redistribution is clearly allowed.
+There are two JCR usage paths: use your own single-year or multi-year JCR quartile raw-data files as an offline reference, or use your authorized Clarivate/JCR account with a Playwright automated browser to query live information from the website. The current scripts default to a visible browser window for login and verification; you can adapt the browser mode to headless in your own environment if appropriate. The public release does not bundle complete JCR raw files by default; local files can be placed under `data/jcr-local/`, but should not be committed unless redistribution is clearly allowed.
 
 ```bash
 npm run fetch -- --input examples/jcr_input.example.json --output jcr_results.md
 ```
 
-The script first asks whether you want to pause and use/find a local JCR 2024 offline file. For unattended runs, skip the prompt:
+The script first asks whether you want to pause and use/find a local JCR offline file. For unattended runs, skip the prompt:
 
 ```bash
 npm run fetch -- --input examples/jcr_input.example.json --output jcr_results.md --skip-offline-reminder
