@@ -72,10 +72,20 @@ Install Node dependencies:
 npm install
 ```
 
-Run JCR extraction:
+Run JCR / partition extraction:
 
 ```bash
 npm run fetch -- --input <Input_JSON_Path> --output <Output_MD_Path>
+```
+
+If the user does not clearly specify which partition system they want, ask whether they want local CAS partition data, local JCR data, live JCR lookup, or no partition lookup. For CAS partition lookup, instruct the user to place their own legally obtained CSV/TSV/JSON files under `data/cas-local/` or pass `--local-partition-file <path>`.
+
+Common options:
+
+```bash
+npm run fetch -- --input <Input_JSON_Path> --output cas_results.md --partition-source cas-local
+npm run fetch -- --input <Input_JSON_Path> --output jcr_local_results.md --partition-source jcr-local
+npm run fetch -- --input <Input_JSON_Path> --output jcr_live_results.md --partition-source jcr-live
 ```
 
 Input JSON format:

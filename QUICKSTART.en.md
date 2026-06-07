@@ -97,18 +97,30 @@ macOS/Linux:
 ./.venv/bin/python orcid_extractor.py
 ```
 
-## 7. Run JCR
+## 7. Run JCR / CAS Partition Lookup
 
-There are two JCR usage paths: use your own single-year or multi-year JCR quartile raw-data files as an offline reference, or use your authorized Clarivate/JCR account with a Playwright automated browser to query live information from the website. The current scripts default to a visible browser window for login and verification; you can adapt the browser mode to headless in your own environment if appropriate. The public release does not bundle complete JCR raw files by default; local files can be placed under `data/jcr-local/`, but should not be committed unless redistribution is clearly allowed.
+Partition data has three usage paths: use your own local CAS partition files, use your own local JCR files, or use your authorized Clarivate/JCR account with a Playwright browser to query live information. The public release does not bundle complete JCR or CAS raw partition files by default. Local JCR files can be placed under `data/jcr-local/`; local CAS files can be placed under `data/cas-local/`. Do not commit them unless redistribution is clearly allowed.
 
 ```bash
 npm run fetch -- --input examples/jcr_input.example.json --output jcr_results.md
 ```
 
-The script first asks whether you want to pause and use/find a local JCR offline file. For unattended runs, skip the prompt:
+Use local CAS partition data:
 
 ```bash
-npm run fetch -- --input examples/jcr_input.example.json --output jcr_results.md --skip-offline-reminder
+npm run fetch -- --input examples/jcr_input.example.json --output cas_results.md --partition-source cas-local
+```
+
+Use local JCR partition data:
+
+```bash
+npm run fetch -- --input examples/jcr_input.example.json --output jcr_local_results.md --partition-source jcr-local
+```
+
+When `--partition-source` is omitted, interactive runs ask whether to use local CAS, local JCR, live JCR, or skip partition lookup. For unattended runs, specify the source explicitly:
+
+```bash
+npm run fetch -- --input examples/jcr_input.example.json --output jcr_results.md --partition-source jcr-live --skip-offline-reminder
 ```
 
 `jcr_results.md` is a generated local artifact and should be reviewed before sharing.

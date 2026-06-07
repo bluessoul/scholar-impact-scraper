@@ -99,18 +99,30 @@ macOS/Linux:
 ./.venv/bin/python orcid_extractor.py
 ```
 
-### 7. 运行 JCR
+### 7. 运行 JCR / 中科院分区
 
-JCR 有两种使用方式：一种是使用你自己准备的某一年或多年份 JCR 分区原始文件作为离线参考；另一种是使用你自己的 Clarivate/JCR 合法账号，通过 Playwright 自动化浏览器登录网站查询实时信息。当前脚本默认打开可视化浏览器，便于处理登录和验证码；如果你的环境适合，也可以自行改成无头模式。默认 public release 不附带完整 JCR 原始文件；本地文件可以放在 `data/jcr-local/`，但除非确认允许再分发，否则不要提交。
+分区数据有三种使用方式：使用你自己准备的中科院分区本地文件、使用你自己准备的 JCR 本地文件，或使用你自己的 Clarivate/JCR 合法账号通过 Playwright 浏览器查询实时信息。默认 public release 不附带完整 JCR 或中科院分区原始文件；本地 JCR 文件可以放在 `data/jcr-local/`，本地中科院分区文件可以放在 `data/cas-local/`，但除非确认允许再分发，否则不要提交。
 
 ```bash
 npm run fetch -- --input examples/jcr_input.example.json --output jcr_results.md
 ```
 
-脚本会先提醒你是否要暂停并寻找/使用本地 JCR 离线文件。无人值守运行时可跳过提醒：
+使用中科院本地分区：
 
 ```bash
-npm run fetch -- --input examples/jcr_input.example.json --output jcr_results.md --skip-offline-reminder
+npm run fetch -- --input examples/jcr_input.example.json --output cas_results.md --partition-source cas-local
+```
+
+使用 JCR 本地分区：
+
+```bash
+npm run fetch -- --input examples/jcr_input.example.json --output jcr_local_results.md --partition-source jcr-local
+```
+
+如果没有指定 `--partition-source`，交互式运行会主动询问使用中科院本地分区、JCR 本地分区、JCR 实时查询，还是跳过分区查询。无人值守运行时可显式指定来源：
+
+```bash
+npm run fetch -- --input examples/jcr_input.example.json --output jcr_results.md --partition-source jcr-live --skip-offline-reminder
 ```
 
 `jcr_results.md` 是本地生成文件，分享前需要人工检查。

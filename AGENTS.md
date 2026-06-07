@@ -12,8 +12,9 @@ The project collects academic impact data from:
 - Web of Science
 - ORCID
 - Clarivate JCR
+- User-provided local CAS journal partition files
 
-It combines Python scripts, Playwright browser automation, and a Node.js JCR fetcher.
+It combines Python scripts, Playwright browser automation, and a Node.js JCR / partition fetcher.
 
 ## Safety Rules
 
@@ -74,11 +75,13 @@ Open a local browser profile for institutional login:
 python launch_browser_for_login.py
 ```
 
-Run JCR extraction:
+Run JCR / partition extraction:
 
 ```bash
 npm run fetch -- --input examples/jcr_input.example.json --output jcr_results.md
 ```
+
+If the user does not specify the partition system, ask whether they want local CAS partition data, local JCR data, live JCR lookup, or no partition lookup. Local CAS files should be user-provided CSV/TSV/JSON files under `data/cas-local/` or passed with `--local-partition-file`.
 
 Run tests:
 

@@ -19,6 +19,9 @@ const options = {
   timeout: 30000,
   skipOfflineReminder: false,
   skipLoginReminder: false,
+  partitionSource: 'ask',
+  localPartitionFile: null,
+  localPartitionDir: null,
 };
 
 for (let i = 0; i < args.length; i++) {
@@ -47,6 +50,21 @@ for (let i = 0; i < args.length; i++) {
     options.skipOfflineReminder = true;
   } else if (args[i] === '--skip-login-reminder') {
     options.skipLoginReminder = true;
+  } else if (args[i] === '--partition-source' && args[i + 1]) {
+    options.partitionSource = args[i + 1];
+    i++;
+  } else if ((args[i] === '--local-partition-file' || args[i] === '--partition-file') && args[i + 1]) {
+    options.localPartitionFile = args[i + 1];
+    i++;
+  } else if ((args[i] === '--local-partition-dir' || args[i] === '--partition-dir') && args[i + 1]) {
+    options.localPartitionDir = args[i + 1];
+    i++;
+  } else if (args[i] === '--use-local-cas') {
+    options.partitionSource = 'cas-local';
+  } else if (args[i] === '--use-local-jcr') {
+    options.partitionSource = 'jcr-local';
+  } else if (args[i] === '--no-partition-lookup') {
+    options.partitionSource = 'none';
   }
 }
 
@@ -184,6 +202,87 @@ async function promptJcrOfflineDataOption() {
   return true;
 }
 
+async function resolvePartitionSource() {
+  let source = normalizePartitionSource(options.partitionSource);
+  if (source !== 'ask') {
+    return source;
+  }
+
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    console.log('[Partition Source] Non-interactive terminal detected and no partition source was specified.');
+    console.log('[Partition Source] Defaulting to live Clarivate/JCR lookup. Use --partition-source cas-local for local CAS partition data.\n');
+    return 'jcr-live';
+  }
+
+  console.log('\n' + '='.repeat(80));
+  console.log('[Partition Source]');
+  console.log('Which journal partition source do you want to use?');
+  console.log('  1. Local CAS partition data (中科院分区，本地文件)');
+  console.log('  2. Local JCR partition data (本地 JCR 文件)');
+  console.log('  3. Live Clarivate/JCR lookup');
+  console.log('  4. Skip partition lookup');
+  console.log('='.repeat(80));
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  const answer = await new Promise(resolve => {
+    rl.question('Enter 1/2/3/4 or cas/jcr/live/none: ', resolve);
+  });
+  rl.close();
+
+  const normalized = normalizePartitionSource(answer || 'jcr-live');
+  if (['cas-local', 'jcr-local', 'jcr-live', 'none'].includes(normalized)) {
+    return normalized;
+  }
+  if (String(answer || '').trim() === '1') return 'cas-local';
+  if (String(answer || '').trim() === '2') return 'jcr-local';
+  if (String(answer || '').trim() === '3') return 'jcr-live';
+  if (String(answer || '').trim() === '4') return 'none';
+  console.log('[Partition Source] Unrecognized answer; defaulting to live Clarivate/JCR lookup.');
+  return 'jcr-live';
+}
+
+function localPartitionMissingResult(journal, year, source, message) {
+  return {
+    journal,
+    year,
+    categories: 'N/A',
+    rank: 'N/A',
+    quartile: 'N/A',
+    percentile: 'N/A',
+    journalImpactFactor: 'N/A',
+    fiveYearJIF: 'N/A',
+    partitionSystem: source === 'cas-local' ? 'CAS local' : 'JCR local',
+    casPartition: 'N/A',
+    casSubject: 'N/A',
+    casTop: 'N/A',
+    localDataFile: 'N/A',
+    error: message,
+  };
+}
+
+function skippedPartitionResult(journal, year) {
+  return {
+    journal,
+    year,
+    categories: 'N/A',
+    rank: 'N/A',
+    quartile: 'N/A',
+    percentile: 'N/A',
+    journalImpactFactor: 'N/A',
+    fiveYearJIF: 'N/A',
+    partitionSystem: 'Skipped',
+    casPartition: 'N/A',
+    casSubject: 'N/A',
+    casTop: 'N/A',
+    localDataFile: 'N/A',
+    status: 'Partition lookup skipped',
+  };
+}
+
 function writeVerificationArtifact() {
   // Console output - eye-catching alert for QClaw userr
   console.log('\n' + '='.repeat(80));
@@ -276,6 +375,235 @@ function normalizeJournalName(name) {
     .replace(/\s+&\s+/g, ' AND ') // replace & with AND
     .replace(/\s+/g, ' ')       // compress whitespace
     .trim();
+}
+
+function normalizePartitionSource(source) {
+  const value = String(source || 'ask').trim().toLowerCase().replace(/_/g, '-');
+  const aliases = {
+    ask: 'ask',
+    auto: 'ask',
+    prompt: 'ask',
+    'cas': 'cas-local',
+    'cas-local': 'cas-local',
+    'cas-offline': 'cas-local',
+    'cas-partition': 'cas-local',
+    '中科院': 'cas-local',
+    '中科院分区': 'cas-local',
+    '1': 'cas-local',
+    'jcr': 'jcr-live',
+    'jcr-live': 'jcr-live',
+    live: 'jcr-live',
+    'live-jcr': 'jcr-live',
+    'jcr-local': 'jcr-local',
+    'jcr-offline': 'jcr-local',
+    '2': 'jcr-local',
+    '3': 'jcr-live',
+    none: 'none',
+    skip: 'none',
+    no: 'none',
+    '4': 'none',
+  };
+  return aliases[value] || value;
+}
+
+function normalizeLookupKey(value) {
+  return String(value || '')
+    .toUpperCase()
+    .replace(/ISSN/g, '')
+    .replace(/[^A-Z0-9]/g, '')
+    .trim();
+}
+
+function normalizeIssn(value) {
+  const match = String(value || '').toUpperCase().match(/\b\d{4}[-\s]?\d{3}[\dX]\b/);
+  return match ? match[0].replace(/\s/g, '').replace(/^(\d{4})(\d{4})$/, '$1-$2') : '';
+}
+
+function splitDelimitedLine(line, delimiter) {
+  const cells = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    const next = line[i + 1];
+    if (ch === '"' && inQuotes && next === '"') {
+      current += '"';
+      i++;
+    } else if (ch === '"') {
+      inQuotes = !inQuotes;
+    } else if (ch === delimiter && !inQuotes) {
+      cells.push(current.trim());
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  cells.push(current.trim());
+  return cells;
+}
+
+function parseDelimitedTable(content, delimiter) {
+  const lines = content.replace(/^\uFEFF/, '').split(/\r?\n/).filter(line => line.trim());
+  if (lines.length < 2) return [];
+  const headers = splitDelimitedLine(lines[0], delimiter).map(h => h.trim());
+  return lines.slice(1).map(line => {
+    const cells = splitDelimitedLine(line, delimiter);
+    const row = {};
+    headers.forEach((header, idx) => {
+      row[header] = cells[idx] || '';
+    });
+    return row;
+  });
+}
+
+function looksLikeMojibake(text) {
+  return /�|Ã|Â|æ.|ç.|å.|ä./.test(String(text || ''));
+}
+
+function readTextFileSmart(filePath) {
+  const buffer = fs.readFileSync(filePath);
+  let text = buffer.toString('utf8');
+  if (looksLikeMojibake(text) && typeof TextDecoder !== 'undefined') {
+    try {
+      const decoded = new TextDecoder('gb18030').decode(buffer);
+      if (!looksLikeMojibake(decoded)) {
+        text = decoded;
+      }
+    } catch (err) {
+      // Keep UTF-8 text when GB18030 is unavailable in the local Node runtime.
+    }
+  }
+  return text;
+}
+
+function normalizeHeaderName(header) {
+  return String(header || '').toLowerCase().replace(/[\s_\-()/\\.,:：]+/g, '');
+}
+
+function pickField(row, candidates) {
+  const wanted = new Set(candidates.map(normalizeHeaderName));
+  for (const [key, value] of Object.entries(row || {})) {
+    if (wanted.has(normalizeHeaderName(key)) && String(value || '').trim()) {
+      return String(value).trim();
+    }
+  }
+  return '';
+}
+
+function readLocalPartitionRows(filePath, source) {
+  const resolved = path.resolve(filePath);
+  const ext = path.extname(resolved).toLowerCase();
+  const content = readTextFileSmart(resolved);
+  let rawRows = [];
+  if (ext === '.json') {
+    const parsed = JSON.parse(content);
+    rawRows = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.records) ? parsed.records : []);
+  } else if (ext === '.tsv') {
+    rawRows = parseDelimitedTable(content, '\t');
+  } else {
+    rawRows = parseDelimitedTable(content, ',');
+  }
+
+  return rawRows.map(row => ({
+    raw: row,
+    source,
+    sourceFile: resolved,
+    journal: pickField(row, ['journal_name', 'journal', 'journal title', 'source title', 'title', '刊名', '期刊名称', '期刊名']),
+    issn: pickField(row, ['issn', 'print issn', 'eissn', 'issn/eissn', 'issn号']),
+    year: pickField(row, ['year', 'jcr year', 'cas year', 'partition year', '分区年份', '年份']),
+    category: pickField(row, ['category', 'subject category', 'subject', '学科', '大类学科', '学科分类']),
+    rank: pickField(row, ['rank', 'rank in category', '排名']),
+    quartile: pickField(row, ['quartile', 'jif quartile', 'jcr quartile', 'q', '分区', 'jcr分区']),
+    percentile: pickField(row, ['percentile', 'jif percentile', '百分位']),
+    journalImpactFactor: pickField(row, ['journal impact factor', 'jif', 'impact factor', '影响因子']),
+    fiveYearJIF: pickField(row, ['5-year impact factor', '5 year impact factor', 'five year jif', '5年影响因子']),
+    casPartition: pickField(row, ['cas partition', 'cas zone', 'cas quartile', '中科院分区', '大类分区', '分区', '升级版分区']),
+    casSubject: pickField(row, ['cas subject', 'cas category', '大类学科', '学科', 'subject']),
+    casTop: pickField(row, ['cas_top', 'cas top', 'casTop', 'top', 'top journal', 'top期刊', '是否top', '是否top期刊']),
+    casReview: pickField(row, ['review', 'review journal', '综述', '是否综述']),
+  }));
+}
+
+function findLocalPartitionFiles(source) {
+  if (options.localPartitionFile) {
+    return [options.localPartitionFile];
+  }
+  const defaultDir = source === 'cas-local' ? path.join('data', 'cas-local') : path.join('data', 'jcr-local');
+  const dir = path.resolve(options.localPartitionDir || defaultDir);
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir)
+    .filter(name => /\.(csv|tsv|json)$/i.test(name))
+    .map(name => path.join(dir, name));
+}
+
+function loadLocalPartitionDataset(source) {
+  const files = findLocalPartitionFiles(source);
+  if (!files.length) {
+    return { source, files: [], records: [] };
+  }
+  const records = [];
+  for (const file of files) {
+    try {
+      records.push(...readLocalPartitionRows(file, source));
+    } catch (err) {
+      console.log(`[Local Partition] Failed to read ${file}: ${err.message}`);
+    }
+  }
+  console.log(`[Local Partition] Loaded ${records.length} rows from ${files.length} local ${source} file(s).`);
+  return { source, files, records };
+}
+
+function scoreLocalPartitionRecord(record, journalQuery, targetYear) {
+  const queryIssn = normalizeIssn(journalQuery);
+  const recordIssns = [record.issn, record.raw && record.raw.EISSN, record.raw && record.raw.eissn]
+    .map(normalizeIssn)
+    .filter(Boolean);
+  let score = 0;
+  if (queryIssn && recordIssns.includes(queryIssn)) score += 100;
+
+  const queryKey = normalizeLookupKey(journalQuery);
+  const journalKey = normalizeLookupKey(record.journal);
+  if (queryKey && journalKey) {
+    if (queryKey === journalKey) score += 80;
+    else if (journalKey.length >= 8 && (queryKey.includes(journalKey) || journalKey.includes(queryKey))) score += 45;
+  }
+
+  const recordYear = parseInt(record.year, 10);
+  const requestedYear = parseInt(targetYear, 10);
+  if (!isNaN(recordYear) && !isNaN(requestedYear)) {
+    if (recordYear === requestedYear) score += 25;
+    else if (recordYear <= requestedYear) score += Math.max(1, 12 - Math.min(10, requestedYear - recordYear));
+    else score -= 20;
+  }
+  return score;
+}
+
+function lookupLocalPartition(dataset, journalQuery, targetYear) {
+  if (!dataset || !dataset.records || !dataset.records.length) return null;
+  const ranked = dataset.records
+    .map(record => ({ record, score: scoreLocalPartitionRecord(record, journalQuery, targetYear) }))
+    .filter(item => item.score >= 50)
+    .sort((a, b) => b.score - a.score);
+  if (!ranked.length) return null;
+
+  const record = ranked[0].record;
+  const isCas = dataset.source === 'cas-local';
+  return {
+    journal: record.journal || journalQuery,
+    year: targetYear,
+    categories: record.category || record.casSubject || 'N/A',
+    rank: record.rank || 'N/A',
+    quartile: isCas ? (record.casPartition || 'N/A') : (record.quartile || 'N/A'),
+    percentile: record.percentile || 'N/A',
+    journalImpactFactor: record.journalImpactFactor || 'N/A',
+    fiveYearJIF: record.fiveYearJIF || 'N/A',
+    partitionSystem: isCas ? 'CAS local' : 'JCR local',
+    casPartition: isCas ? (record.casPartition || 'N/A') : 'N/A',
+    casSubject: isCas ? (record.casSubject || record.category || 'N/A') : 'N/A',
+    casTop: isCas ? (record.casTop || 'N/A') : 'N/A',
+    localDataFile: record.sourceFile,
+    status: `Local ${isCas ? 'CAS' : 'JCR'} match`,
+  };
 }
 
 function getSearchCandidates(name) {
@@ -675,13 +1003,15 @@ async function handleLogin(page) {
 }
 
 function writeMarkdownOutput(outputPath, results) {
-  let markdown = '# JCR Historical Fetcher Results\n\n';
+  let markdown = '# Journal Partition Fetcher Results\n\n';
   markdown += 'Generated on: **' + new Date().toLocaleString() + '**\n\n';
-  markdown += '| Journal Name / ISSN | JCR Year | Subject Category | Rank in Category | JIF Quartile | JIF Percentile | Journal Impact Factor (JIF) | 5-Year Impact Factor | Status |\n';
-  markdown += '| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n';
+  markdown += '| Journal Name / ISSN | Year | Partition Source | Subject Category | Rank in Category | JCR Quartile / CAS Zone | CAS Subject | CAS Top | JIF Percentile | Journal Impact Factor (JIF) | 5-Year Impact Factor | Local Data File | Status |\n';
+  markdown += '| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n';
 
   for (const item of results) {
     if (item.error) {
+      markdown += '| ' + item.journal + ' | ' + item.year + ' | ' + (item.partitionSystem || 'N/A') + ' | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | ' + (item.localDataFile || 'N/A') + ' | Error: ' + item.error + ' |\n';
+      continue;
       markdown += '| ' + item.journal + ' | ' + item.year + ' | N/A | N/A | N/A | N/A | N/A | N/A | ❌ Error: ' + item.error + ' |\n';
       continue;
     }
@@ -692,6 +1022,11 @@ function writeMarkdownOutput(outputPath, results) {
     const percentiles = (item.percentile || 'N/A').split('; ').map(s => s.trim());
     const jif = item.journalImpactFactor || 'N/A';
     const fiveYearJif = item.fiveYearJIF || 'N/A';
+    const partitionSystem = item.partitionSystem || 'Live JCR';
+    const casSubject = item.casSubject || 'N/A';
+    const casTop = item.casTop || 'N/A';
+    const localDataFile = item.localDataFile || 'N/A';
+    const status = item.status || 'Success';
 
     const rowCount = Math.max(categories.length, ranks.length, quartiles.length, percentiles.length);
 
@@ -712,7 +1047,7 @@ function writeMarkdownOutput(outputPath, results) {
         }
       }
       
-      markdown += '| ' + item.journal + ' | ' + item.year + ' | ' + category + ' | ' + rank + ' | ' + displayQuartile + ' | ' + percentile + ' | ' + jif + ' | ' + fiveYearJif + ' | Success |\n';
+      markdown += '| ' + item.journal + ' | ' + item.year + ' | ' + partitionSystem + ' | ' + category + ' | ' + rank + ' | ' + displayQuartile + ' | ' + casSubject + ' | ' + casTop + ' | ' + percentile + ' | ' + jif + ' | ' + fiveYearJif + ' | ' + localDataFile + ' | ' + status + ' |\n';
     }
   }
 
@@ -2094,14 +2429,11 @@ async function startInteractiveConsole(page, context, options, results) {
     console.log('Usage 1 (Interactive): node fetch.js [--chrome-data <path>] [--profile <profile>]');
     console.log('Usage 2 (Single Input): node fetch.js --journal "1879-1069" --year 2026 [--chrome-data <path>]');
     console.log('Usage 3 (Batch File):  node fetch.js --input <input.json> [--chrome-data <path>]');
+    console.log('Partition source: --partition-source ask|cas-local|jcr-local|jcr-live|none');
+    console.log('Local files: --local-partition-file <csv|tsv|json> or --local-partition-dir <dir>');
     console.log('Optional: pass --skip-offline-reminder to skip the local JCR data prompt.');
     console.log('Optional: pass --skip-login-reminder to skip the first-run login setup reminder.');
     process.exit(1);
-  }
-
-  const shouldContinueLiveLookup = await promptJcrOfflineDataOption();
-  if (!shouldContinueLiveLookup) {
-    process.exit(0);
   }
 
   const hasFileInput = !!options.input;
@@ -2131,6 +2463,59 @@ async function startInteractiveConsole(page, context, options, results) {
     console.log('\n==================================================');
     console.log('🤖 JCR Historical Fetcher - Launching Interactive Mode');
     console.log('==================================================');
+  }
+
+  const partitionSource = await resolvePartitionSource();
+  options.partitionSource = partitionSource;
+
+  if (partitionSource === 'none') {
+    const results = payload.map(target => skippedPartitionResult(target.journal_name_or_issn, target.publication_year));
+    writeMarkdownOutput(options.output, results);
+    console.log('[Partition Source] Partition lookup skipped by request.');
+    process.exit(0);
+  }
+
+  if (partitionSource === 'cas-local' || partitionSource === 'jcr-local') {
+    if (isInteractive) {
+      console.log(`[Local Partition] Interactive local ${partitionSource} lookup is not enabled in this script mode.`);
+      console.log(`[Local Partition] Re-run with --journal/--year or --input plus --partition-source ${partitionSource}.`);
+      process.exit(0);
+    }
+
+    const dataset = loadLocalPartitionDataset(partitionSource);
+    const results = [];
+    if (!dataset.records.length) {
+      const defaultDir = partitionSource === 'cas-local' ? 'data/cas-local/' : 'data/jcr-local/';
+      const message = `No local ${partitionSource} data file found. Put CSV/TSV/JSON files under ${defaultDir} or pass --local-partition-file <path>.`;
+      console.log(`[Local Partition] ${message}`);
+      for (const target of payload) {
+        results.push(localPartitionMissingResult(target.journal_name_or_issn, target.publication_year, partitionSource, message));
+      }
+      writeMarkdownOutput(options.output, results);
+      process.exit(1);
+    }
+
+    for (const target of payload) {
+      const result = lookupLocalPartition(dataset, target.journal_name_or_issn, target.publication_year);
+      if (result) {
+        results.push(result);
+      } else {
+        results.push(localPartitionMissingResult(
+          target.journal_name_or_issn,
+          target.publication_year,
+          partitionSource,
+          `No local ${partitionSource} match found`
+        ));
+      }
+      writeMarkdownOutput(options.output, results);
+    }
+    console.log(`[Local Partition] Completed ${partitionSource} lookup. Results saved to ${options.output}.`);
+    process.exit(0);
+  }
+
+  const shouldContinueLiveLookup = await promptJcrOfflineDataOption();
+  if (!shouldContinueLiveLookup) {
+    process.exit(0);
   }
 
   const localUserDataDir = path.resolve('.playwright_profile');

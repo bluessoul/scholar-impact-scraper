@@ -15,7 +15,7 @@
 - **基金申请和简历整理**：批量整理某位学者的论文、引用、作者顺序、通讯作者线索、DOI、卷期页码，并按 APA、MLA、Chicago、Harvard、LaTeX/BibTeX、AMA/Numeric、GB/T 7714 或 GB/T 7714-2025 导出参考文献，减少手工改格式的时间。
 - **学者影响力初筛**：快速汇总 Google Scholar 与 Web of Science 的引用指标，辅助评估候选人、合作对象、课题组成员或项目团队的科研产出。
 - **论文清单补全**：从 Google Scholar 列表页出发，打开详情页补全作者、期刊/会议、卷、期、页码、出版社、DOI 等字段；再用 OpenAlex 补全 DOI、完整作者、通讯作者、卷期页码和来源信息；仍缺失 DOI 时再用 Crossref 进行补充校验。
-- **期刊投稿和成果归档**：查询 JCR 分区、排名和影响因子，或把用户自己下载的多年份 JCR 本地数据作为参考，服务投稿选择、成果登记和年度统计。
+- **期刊投稿和成果归档**：查询 JCR 分区、排名和影响因子，或把用户自己下载的多年份 JCR / 中科院分区本地数据作为参考，服务投稿选择、成果登记和年度统计。
 - **Agentic IDE 自动化任务**：让 Codex、Claude Code、OpenClaw 等客户端读取 `SKILL.md`/`AGENTS.md`，在本地凭据和浏览器会话范围内协助执行半自动化科研数据整理流程。
 
 ## 最近更新
@@ -37,6 +37,7 @@ Scholar Impact Scraper 是一个面向 QClaw/OpenClaw、Codex、Claude Code、Cl
 - Web of Science 引用数据查询，前提是用户拥有合法访问权限。
 - ORCID Public API 论文成果提取。
 - Clarivate JCR 期刊学科类别、分区、排名和影响因子提取。
+- 用户本地中科院期刊分区文件查询，支持 CSV、TSV 和 JSON。
 
 ## 开始之前
 
@@ -246,18 +247,19 @@ python launch_browser_for_login.py
 
 ## 运行 JCR 提取
 
-### JCR 数据来源和实时查询能力
+### JCR / 中科院分区数据来源
 
-目前公开仓库的使用说明只覆盖两类 JCR 使用方式：
+分区数据现在支持三类来源：
 
-- 离线参考：如果你手头有自己下载或整理的某一年 JCR 分区原始文件，可以把它作为本地参考数据使用。请注意，这类文件不是本仓库生成的官方实时数据，也可能存在滞后、缺项或版权/再分发限制，使用前需要自行核验来源和授权。
-- 实时查询：如果你拥有合法的 Clarivate/JCR 访问权限，可以通过本项目的 Playwright 自动化浏览器登录 JCR 网站，查询当前页面可见的最新信息。当前脚本默认使用可视化浏览器窗口，便于手动处理机构登录、验证码或安全验证；在你自己的环境中也可以按需要改成无头模式。
+- 中科院本地分区：用户自行下载或整理数据，放在 `data/cas-local/`，或通过 `--local-partition-file` 指定文件。
+- JCR 本地分区：用户自行下载或整理 JCR 数据，放在 `data/jcr-local/`，或通过 `--local-partition-file` 指定文件。
+- JCR 实时查询：如果你拥有合法的 Clarivate/JCR 访问权限，可以通过 Playwright 自动化浏览器登录 JCR 网站，查询当前页面可见的最新信息。
 
 实时查询不会绕过访问控制。你仍然需要使用自己有权使用的机构或个人账号。
 
-默认 public release 不附带任何完整的 JCR 原始分区文件。原因是这类数据文件可能有版权、数据库权利、平台条款、机构授权或再分发限制。如果你只是本地使用，可以把自己的多年份 JCR 文件放在 `data/jcr-local/` 或其他本地路径中；如果你确实要把数据文件发布到 GitHub，请先确认来源允许公开再分发，并在 `data/jcr-local/README.md` 中记录年份、来源、许可证、下载日期和校验信息。
+默认 public release 不附带任何完整的 JCR 或中科院分区原始文件。原因是这类数据文件可能有版权、数据库权利、平台条款、机构授权或再分发限制。如果你只是本地使用，可以把自己的多年份文件放在 `data/jcr-local/`、`data/cas-local/` 或其他本地路径中；如果你确实要把数据文件发布到 GitHub，请先确认来源允许公开再分发，并记录年份、来源、许可证、下载日期和校验信息。
 
-运行 JCR 脚本时，它会先主动提醒你可以使用自己准备的本地 JCR 数据文件来节省实时查询时间。如果你选择不使用离线文件，脚本会继续打开 Playwright 浏览器进行实时查询。自动化运行时可以添加 `--skip-offline-reminder` 跳过这个提醒。
+如果用户没有明确指定分区来源，交互式运行会主动询问使用中科院本地分区、JCR 本地分区、JCR 实时查询，还是跳过分区查询。非交互式自动化运行会默认继续 JCR 实时查询；如需中科院分区，请显式添加 `--partition-source cas-local`。
 
 先准备输入文件。可以参考：
 
@@ -280,6 +282,19 @@ examples/jcr_input.example.json
 
 ```bash
 npm run fetch -- --input examples/jcr_input.example.json --output jcr_results.md
+```
+
+使用中科院本地分区：
+
+```bash
+npm run fetch -- --input examples/jcr_input.example.json --output cas_results.md --partition-source cas-local
+npm run fetch -- --journal "Advanced Functional Materials" --year 2024 --output cas_results.md --partition-source cas-local --local-partition-file data/cas-local/cas_2024_partitions.csv
+```
+
+使用 JCR 本地分区：
+
+```bash
+npm run fetch -- --input examples/jcr_input.example.json --output jcr_local_results.md --partition-source jcr-local
 ```
 
 自动化或无人值守运行时：
