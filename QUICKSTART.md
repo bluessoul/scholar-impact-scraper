@@ -132,7 +132,7 @@ python scholar_playwright.py --user-id <Scholar_ID> --output output.csv --max-cl
 常用可选项：
 
 ```text
---citation-format apa,gbt
+--citation-format apa,gbt2025
 --target-author "Author Name"
 --target-author-position 3
 --author-highlight both

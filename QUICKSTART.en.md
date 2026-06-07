@@ -130,7 +130,7 @@ The script defaults to Google Scholar detail panels, OpenAlex, and Crossref in o
 Common optional flags:
 
 ```text
---citation-format apa,gbt
+--citation-format apa,gbt2025
 --target-author "Author Name"
 --target-author-position 3
 --author-highlight both

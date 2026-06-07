@@ -381,7 +381,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-CITATION_FORMATS = ["apa", "mla", "chicago", "harvard", "latex", "ama", "gbt"]
+CITATION_FORMATS = ["apa", "mla", "chicago", "harvard", "latex", "ama", "gbt", "gbt2025"]
 CITATION_FORMAT_LABELS = {
     "apa": "APA",
     "mla": "MLA",
@@ -390,6 +390,7 @@ CITATION_FORMAT_LABELS = {
     "latex": "LaTeX/BibTeX",
     "ama": "AMA/Numeric",
     "gbt": "GB/T 7714",
+    "gbt2025": "GB/T 7714-2025",
 }
 
 def clean_bib_value(value) -> str:
@@ -642,7 +643,7 @@ def format_author_list(authors: str, style: str, target_position: int = 0, highl
         if len(names) > 6:
             compact.append("et al")
         return ", ".join(compact)
-    if style == "gbt":
+    if style in ("gbt", "gbt2025"):
         visible_names = []
         for idx, name in enumerate(names[:3], 1):
             visible_names.append(apply_author_highlight(name, highlight_style) if idx == parse_author_position(target_position) else name)
@@ -686,6 +687,24 @@ def bibtex_key(row: dict, index: int) -> str:
             title_word = word
             break
     return f"{first_author}{year}{title_word or index}"
+
+def format_gbt_source(venue: str, year: str, volume: str, issue: str, pages: str, style: str = "gbt") -> str:
+    source = venue
+    if year:
+        source += f", {year}" if source else year
+    if volume:
+        source += f", {volume}"
+        if issue:
+            source += f"({issue})"
+    elif issue:
+        source += f"({issue})" if source else f"({issue})"
+    if pages:
+        source += f": {pages}"
+    return source
+
+def format_gbt_doi(doi: str) -> str:
+    clean_doi = normalize_doi(doi)
+    return f"DOI: {clean_doi}" if clean_doi else ""
 
 def format_citation(row: dict, style: str, index: int, highlight_style: str = "none") -> str:
     title = clean_bib_value(row.get("Title"))
@@ -757,20 +776,14 @@ def format_citation(row: dict, style: str, index: int, highlight_style: str = "n
         if pages:
             journal_bits += f":{pages}"
         return citation + join_parts([body, journal_bits, doi])
-    if style == "gbt":
-        authors_gbt = format_author_list(row.get("Authors", ""), "gbt", target_position, highlight_style)
-        doc_type = "C" if clean_bib_value(row.get("Conference")) and not clean_bib_value(row.get("Journal")) else "J"
+    if style in ("gbt", "gbt2025"):
+        authors_gbt = format_author_list(row.get("Authors", ""), style, target_position, highlight_style)
+        base_doc_type = "C" if clean_bib_value(row.get("Conference")) and not clean_bib_value(row.get("Journal")) else "J"
+        doc_type = f"{base_doc_type}/OL" if style == "gbt2025" and doi else base_doc_type
         title_part = f"{title}[{doc_type}]" if title else ""
-        source = venue
-        if year:
-            source += f", {year}" if source else year
-        if volume:
-            source += f", {volume}"
-        if issue:
-            source += f"({issue})"
-        if pages:
-            source += f": {pages}"
-        return join_parts([authors_gbt, title_part, source, doi])
+        source = format_gbt_source(venue, year, volume, issue, pages, style)
+        doi_part = format_gbt_doi(doi) if style == "gbt2025" else doi
+        return join_parts([authors_gbt, title_part, source, doi_part])
     if style == "latex":
         fields = {
             "title": title,
@@ -812,15 +825,21 @@ def resolve_citation_formats(citation_format: str) -> list:
         print("  5. LaTeX/BibTeX")
         print("  6. AMA/Numeric")
         print("  7. GB/T 7714")
-        print("  8. All")
+        print("  8. GB/T 7714-2025")
+        print("  9. All")
         choice = input("Enter numbers or names separated by commas, or press Enter to skip: ").strip().lower()
         if not choice:
             return []
         requested = choice
     if requested in ("none", "skip", "no"):
         return []
+    requested = (
+        requested.replace("gb/t 7714-2025", "gbt2025")
+        .replace("gb/t7714-2025", "gbt2025")
+        .replace("gb/t-7714-2025", "gbt2025")
+    )
     tokens = [token.strip().lower() for token in re.split(r"[,;/\s]+", requested) if token.strip()]
-    if "all" in tokens or "8" in tokens:
+    if "all" in tokens or "9" in tokens:
         return CITATION_FORMATS
     aliases = {
         "1": "apa",
@@ -839,6 +858,12 @@ def resolve_citation_formats(citation_format: str) -> list:
         "gb/t": "gbt",
         "gb/t7714": "gbt",
         "gb/t-7714": "gbt",
+        "8": "gbt2025",
+        "gbt2025": "gbt2025",
+        "gbt-2025": "gbt2025",
+        "gbt7714-2025": "gbt2025",
+        "gb7714-2025": "gbt2025",
+        "gb2025": "gbt2025",
     }
     formats = []
     for token in tokens:
@@ -1743,7 +1768,7 @@ def main():
     parser.add_argument(
         "--citation-format",
         default="ask",
-        help="Optional reference export format: ask, none, apa, mla, chicago, harvard, latex/bibtex, ama, gbt/gbt7714, all, or comma-separated values."
+        help="Optional reference export format: ask, none, apa, mla, chicago, harvard, latex/bibtex, ama, gbt/gbt7714, gbt2025/gbt7714-2025, all, or comma-separated values."
     )
     parser.add_argument(
         "--output-sort",

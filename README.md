@@ -12,11 +12,19 @@
 
 ## 典型使用场景
 
-- **基金申请和简历整理**：批量整理某位学者的论文、引用、作者顺序、通讯作者线索、DOI、卷期页码，并按 APA、MLA、Chicago、Harvard、LaTeX/BibTeX、AMA/Numeric 或 GB/T 7714 导出参考文献，减少手工改格式的时间。
+- **基金申请和简历整理**：批量整理某位学者的论文、引用、作者顺序、通讯作者线索、DOI、卷期页码，并按 APA、MLA、Chicago、Harvard、LaTeX/BibTeX、AMA/Numeric、GB/T 7714 或 GB/T 7714-2025 导出参考文献，减少手工改格式的时间。
 - **学者影响力初筛**：快速汇总 Google Scholar 与 Web of Science 的引用指标，辅助评估候选人、合作对象、课题组成员或项目团队的科研产出。
 - **论文清单补全**：从 Google Scholar 列表页出发，打开详情页补全作者、期刊/会议、卷、期、页码、出版社、DOI 等字段；再用 OpenAlex 补全 DOI、完整作者、通讯作者、卷期页码和来源信息；仍缺失 DOI 时再用 Crossref 进行补充校验。
 - **期刊投稿和成果归档**：查询 JCR 分区、排名和影响因子，或把用户自己下载的多年份 JCR 本地数据作为参考，服务投稿选择、成果登记和年度统计。
 - **Agentic IDE 自动化任务**：让 Codex、Claude Code、OpenClaw 等客户端读取 `SKILL.md`/`AGENTS.md`，在本地凭据和浏览器会话范围内协助执行半自动化科研数据整理流程。
+
+## 最近更新
+
+- 新增 `gbt2025` 参考文献格式，用于 GB/T 7714-2025。该标准已发布，实施日期为 2026-07-01；旧的 `gbt` 输出仍保留，便于兼容既有材料。
+- `gbt2025` 会在 DOI 可用时把期刊/会议文献标为 `[J/OL]` 或 `[C/OL]`，并用 `DOI: 10.xxxx/...` 形式输出 DOI。
+- 参考文献交互菜单现在包含：APA、MLA、Chicago、Harvard、LaTeX/BibTeX、AMA/Numeric、GB/T 7714、GB/T 7714-2025 和 All。
+- 默认 Scholar 抓取流程会优先使用 Google Scholar 详情页 DOI，再用 OpenAlex 补 DOI、作者、通讯作者、卷期页码、来源和出版社，最后才对仍缺 DOI 的记录使用 Crossref。
+- 用户仍可用 `--no-fetch-doi --no-openalex-enrich --no-fetch-corresponding` 关闭增强，做纯 Google Scholar 快速抓取。
 
 ## 这是什么
 
@@ -201,10 +209,16 @@ python scholar_playwright.py --user-id <Scholar_ID> --output output.csv --max-cl
 参考文献格式导出：
 
 ```bash
-python scholar_playwright.py --user-id <Scholar_ID> --output output.csv --citation-format apa,gbt
+python scholar_playwright.py --user-id <Scholar_ID> --output output.csv --citation-format apa,gbt2025
 ```
 
-支持 `apa`、`mla`、`chicago`、`harvard`、`latex`/`bibtex`、`ama`、`gbt` 和 `all`。CSV 始终会保存，参考文献文件会额外生成。
+支持 `apa`、`mla`、`chicago`、`harvard`、`latex`/`bibtex`、`ama`、`gbt`、`gbt2025` 和 `all`。CSV 始终会保存，参考文献文件会额外生成。`gbt2025` 用于 GB/T 7714-2025，在线期刊/会议文献有 DOI 时会输出 `[J/OL]` 或 `[C/OL]`，并以 `DOI: ...` 形式标注 DOI。
+
+也可以一次导出多个格式：
+
+```bash
+python scholar_playwright.py --user-id <Scholar_ID> --output output.csv --citation-format apa,gbt,gbt2025
+```
 
 作者和通讯作者标注：
 

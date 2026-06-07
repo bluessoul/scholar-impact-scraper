@@ -12,11 +12,19 @@ This project does not bypass platform access controls. Features that require acc
 
 ## Typical Use Cases
 
-- **Grant applications and CV preparation**: collect publications, citations, author order, corresponding-author signals, DOI, volume, issue, and pages, then export references in APA, MLA, Chicago, Harvard, LaTeX/BibTeX, AMA/Numeric, or GB/T 7714.
+- **Grant applications and CV preparation**: collect publications, citations, author order, corresponding-author signals, DOI, volume, issue, and pages, then export references in APA, MLA, Chicago, Harvard, LaTeX/BibTeX, AMA/Numeric, GB/T 7714, or GB/T 7714-2025.
 - **Scholar impact screening**: quickly summarize Google Scholar and Web of Science citation signals for candidates, collaborators, lab members, or project teams.
 - **Publication-list enrichment**: start from a Google Scholar profile, open detail panels to fill authors, journal/conference, volume, issue, pages, publisher, and DOI; use OpenAlex to enrich DOI, complete authors, corresponding authors, volume, issue, pages, source, and publisher; use Crossref only for DOI records still missing after those steps.
 - **Journal selection and output reporting**: look up JCR quartiles, rankings, and impact factors, or use user-provided multi-year local JCR files as reference data for submission planning and annual reporting.
 - **Agentic IDE workflows**: let Codex, Claude Code, OpenClaw, or similar clients read `SKILL.md`/`AGENTS.md` and help run local, human-in-the-loop research data workflows.
+
+## Recent Updates
+
+- Added `gbt2025` reference export for GB/T 7714-2025. The standard has been published and takes effect on 2026-07-01; the existing `gbt` output remains available for compatibility.
+- `gbt2025` marks DOI-backed journal/conference records as `[J/OL]` or `[C/OL]` and writes DOI values as `DOI: 10.xxxx/...`.
+- The interactive reference-format menu now includes APA, MLA, Chicago, Harvard, LaTeX/BibTeX, AMA/Numeric, GB/T 7714, GB/T 7714-2025, and All.
+- Default Scholar runs now prefer DOI values from Google Scholar detail panels, then use OpenAlex for DOI, authors, corresponding authors, volume, issue, pages, source, and publisher, and only then use Crossref for records that still lack DOI.
+- Use `--no-fetch-doi --no-openalex-enrich --no-fetch-corresponding` for a fast Google-Scholar-only run without metadata enrichment.
 
 ## What This Is
 
@@ -201,10 +209,16 @@ python scholar_playwright.py --user-id <Scholar_ID> --output output.csv --max-cl
 Reference-format export:
 
 ```bash
-python scholar_playwright.py --user-id <Scholar_ID> --output output.csv --citation-format apa,gbt
+python scholar_playwright.py --user-id <Scholar_ID> --output output.csv --citation-format apa,gbt2025
 ```
 
-Supported formats include `apa`, `mla`, `chicago`, `harvard`, `latex`/`bibtex`, `ama`, `gbt`, and `all`. CSV is always saved; reference files are generated as companion outputs.
+Supported formats include `apa`, `mla`, `chicago`, `harvard`, `latex`/`bibtex`, `ama`, `gbt`, `gbt2025`, and `all`. CSV is always saved; reference files are generated as companion outputs. `gbt2025` targets GB/T 7714-2025 and marks DOI-backed online journal/conference records as `[J/OL]` or `[C/OL]` with `DOI: ...`.
+
+You can export multiple formats in one run:
+
+```bash
+python scholar_playwright.py --user-id <Scholar_ID> --output output.csv --citation-format apa,gbt,gbt2025
+```
 
 Target-author and corresponding-author marking:
 
