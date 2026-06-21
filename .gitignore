@@ -31,6 +31,13 @@ venv/
 *.log
 *_results.md
 *_stats.json
+intake_results/
+*/intake_results/
+intake_profile.json
+author_candidates.json
+scrape_plan.json
+publication_clues.csv
+final_summary.md
 JCR_OFFLINE_DATA_OPTION.md
 captcha_verification.md
 FIRST_RUN_LOGIN_SETUP.md

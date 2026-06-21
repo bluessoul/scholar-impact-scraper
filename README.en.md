@@ -12,6 +12,7 @@ This project does not bypass platform access controls. Features that require acc
 
 ## Typical Use Cases
 
+- **One-step CV/template import**: provide a `docx/pdf/txt/md` CV, a job/application template, or just a name plus affiliation; `scholar_intake.py` automatically identifies the scholar, publication clues, and requested fields, then produces readable local results.
 - **Grant applications and CV preparation**: collect publications, citations, author order, corresponding-author signals, DOI, volume, issue, and pages, then export references in APA, MLA, Chicago, Harvard, LaTeX/BibTeX, AMA/Numeric, GB/T 7714, or GB/T 7714-2025.
 - **Scholar impact screening**: quickly summarize Google Scholar and Web of Science citation signals for candidates, collaborators, lab members, or project teams.
 - **Publication-list enrichment**: start from a Google Scholar profile, open detail panels to fill authors, journal/conference, volume, issue, pages, publisher, and DOI; use OpenAlex to enrich DOI, complete authors, corresponding authors, volume, issue, pages, source, and publisher; use Crossref only for DOI records still missing after those steps.
@@ -20,10 +21,19 @@ This project does not bypass platform access controls. Features that require acc
 
 ## Recent Updates
 
+### 2026-06-21: One-step CV and template import
+
+- Added `scholar_intake.py`: users can drop in a CV, an application template, or a name plus affiliation, and the tool automatically works out who to look up and what needs to be organized.
+- Automatically recognizes name, affiliation, email, ORCID, Google Scholar ID, publication lists, and requested fields from the template, then creates a readable summary for the user.
+- For Word files, it also tries to detect bold, underlined, and starred author markers so the user can confirm target, first, or corresponding authors. For PDFs, it warns that formatting is unreliable and asks for a Word file or extra author-role details.
+- By default, the first run stops for review. After checking `final_summary.md`, rerun with `--yes` plus a year choice such as `--all-years`, `--year 2024`, or `--year-from 2020 --year-to 2024`. If affiliation, template requirements, year scope, or scholar identity are still unclear, the tool keeps asking for confirmation instead of organizing the wrong person.
+
+### 2026-06: Metadata, citation-format, and partition enhancements
+
 - Added `gbt2025` reference export for GB/T 7714-2025. The standard has been published and takes effect on 2026-07-01; the existing `gbt` output remains available for compatibility.
 - `gbt2025` marks DOI-backed journal/conference records as `[J/OL]` or `[C/OL]` and writes DOI values as `DOI: 10.xxxx/...`.
-- The interactive reference-format menu now includes APA, MLA, Chicago, Harvard, LaTeX/BibTeX, AMA/Numeric, GB/T 7714, GB/T 7714-2025, and All.
-- Default Scholar runs now prefer DOI values from Google Scholar detail panels, then use OpenAlex for DOI, authors, corresponding authors, volume, issue, pages, source, and publisher, and only then use Crossref for records that still lack DOI.
+- The interactive reference-format menu includes APA, MLA, Chicago, Harvard, LaTeX/BibTeX, AMA/Numeric, GB/T 7714, GB/T 7714-2025, and All.
+- Default Scholar runs prefer DOI values from Google Scholar detail panels, then use OpenAlex for DOI, authors, corresponding authors, volume, issue, pages, source, and publisher, and only then use Crossref for records that still lack DOI.
 - Use `--no-fetch-doi --no-openalex-enrich --no-fetch-corresponding` for a fast Google-Scholar-only run without metadata enrichment.
 
 ## What This Is
@@ -32,6 +42,7 @@ Scholar Impact Scraper is an academic impact extraction toolkit for QClaw/OpenCl
 
 It currently includes:
 
+- One-step CV/template import for turning `docx/pdf/txt/md` CVs, application templates, or name-plus-affiliation input into automatically recognized scholar details, publication clues, requested fields, and readable local results.
 - Google Scholar publication and citation scraping.
 - OpenAlex structured metadata enrichment for DOI, complete authors, corresponding authors, source, publisher, volume, issue, and pages.
 - Web of Science citation lookups when the user has legitimate access.

@@ -165,6 +165,24 @@ python launch_browser_for_login.py
 
 `.playwright_profile/` 会保存本地登录状态，不能提交或分享。
 
-### 9. 许可证
+### 9. 从简历或模板一键整理
+
+当用户直接提供简历、求职/申请模板，或只提供姓名和单位时，可以先使用一键导入入口：
+
+```bash
+python scholar_intake.py --input cv.docx --template job_template.docx --output-dir intake_results
+```
+
+它会在本地结果文件夹里生成可读总结、论文线索表、自动识别到的学者信息和后续整理步骤。默认不会直接抓取；确认 `final_summary.md` 无误后，再确认年份范围并运行：
+
+```bash
+python scholar_intake.py --input cv.docx --template job_template.docx --output-dir intake_results --yes --all-years
+```
+
+如果只需要某一年或某个年份范围，可以改用 `--year 2024` 或 `--year-from 2020 --year-to 2024`。
+
+如果同名学者太多，或单位、模板要求、年份范围等关键信息不够明确，即使加了 `--yes` 也会继续要求用户确认，不会自动整理错人。Word 简历中的加粗、下划线和星号作者标记会出现在摘要里供确认；PDF 因为格式识别不可靠，会提醒用户提供 Word 文件或补充作者说明。
+
+### 10. 许可证
 
 本项目使用 Apache License 2.0。版权所有 © 2026 bluessoul。使用、修改或分发本项目时，请保留 `LICENSE`、`NOTICE` 和版权声明，并注明原项目来源。

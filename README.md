@@ -6,12 +6,13 @@
 
 科研人员、研究助理和科研管理人员经常需要反复整理同一批信息：某位学者在 Google Scholar 的论文和引用、Web of Science 的引用与他引数据、ORCID 成果列表，以及期刊在 JCR 中的分区、排名和影响因子。这些信息分散在不同平台，复制粘贴耗时，也很容易漏项或格式不一致。
 
-这个项目把这些重复工作整理成一套可由命令行或 Agentic IDE 协助运行的流程：你准备 Scholar ID、WoS ID、ORCID iD 或期刊列表，工具负责把抓取、登录提醒、验证码人工接管、结果导出和安全注意事项串起来。它尤其适合做学者影响力初筛、简历/基金材料前的数据整理、期刊分区核查、论文列表补全，以及让 Codex、Claude Code、OpenClaw 等客户端接手半自动化科研数据任务。
+这个项目把这些重复工作整理成一套可由命令行或 Agentic IDE 协助运行的流程：你可以准备 Scholar ID、WoS ID、ORCID iD 或期刊列表，也可以直接提供简历、单位申请模板，或姓名+单位。工具会自动识别学者信息、判断需要整理的内容、提醒登录或验证码处理，并导出结果。它尤其适合做学者影响力初筛、简历/基金材料前的数据整理、期刊分区核查、论文列表补全，以及让 Codex、Claude Code、OpenClaw 等客户端接手半自动化科研数据任务。
 
 本项目不会绕过任何平台访问控制。需要账号或机构订阅的功能，仍然要求你使用自己有权访问的账号。
 
 ## 典型使用场景
 
+- **简历/模板一键导入**：用户直接提供 `docx/pdf/txt/md` 简历、单位求职/申请模板，或只提供姓名+单位；`scholar_intake.py` 会自动识别学者信息、论文线索和填报要求，并生成可阅读、可继续处理的结果。
 - **基金申请和简历整理**：批量整理某位学者的论文、引用、作者顺序、通讯作者线索、DOI、卷期页码，并按 APA、MLA、Chicago、Harvard、LaTeX/BibTeX、AMA/Numeric、GB/T 7714 或 GB/T 7714-2025 导出参考文献，减少手工改格式的时间。
 - **学者影响力初筛**：快速汇总 Google Scholar 与 Web of Science 的引用指标，辅助评估候选人、合作对象、课题组成员或项目团队的科研产出。
 - **论文清单补全**：从 Google Scholar 列表页出发，打开详情页补全作者、期刊/会议、卷、期、页码、出版社、DOI 等字段；再用 OpenAlex 补全 DOI、完整作者、通讯作者、卷期页码和来源信息；仍缺失 DOI 时再用 Crossref 进行补充校验。
@@ -20,10 +21,19 @@
 
 ## 最近更新
 
+### 2026-06-21：简历和模板一键导入
+
+- 新增 `scholar_intake.py`：用户可以直接丢入简历、单位申请模板，或只输入姓名+单位，工具会自动识别该找谁、需要整理什么信息。
+- 自动识别姓名、单位、邮箱、ORCID、Google Scholar ID、论文列表和模板里的填报要求，并生成一份用户可读的整理结果。
+- Word 简历会尝试识别论文作者中的加粗、下划线和星号标记，帮助判断目标作者、第一作者或通讯作者；PDF 会提醒用户格式识别不可靠，建议提供 Word 文件或补充作者说明。
+- 如果信息足够明确，工具会继续调用现有 Scholar/ORCID/JCR 功能补全数据；如果遇到同名学者或证据不足，会先提醒用户确认，避免整理错人。
+
+### 2026-06：论文元数据、引用格式和分区查询增强
+
 - 新增 `gbt2025` 参考文献格式，用于 GB/T 7714-2025。该标准已发布，实施日期为 2026-07-01；旧的 `gbt` 输出仍保留，便于兼容既有材料。
 - `gbt2025` 会在 DOI 可用时把期刊/会议文献标为 `[J/OL]` 或 `[C/OL]`，并用 `DOI: 10.xxxx/...` 形式输出 DOI。
-- 参考文献交互菜单现在包含：APA、MLA、Chicago、Harvard、LaTeX/BibTeX、AMA/Numeric、GB/T 7714、GB/T 7714-2025 和 All。
-- 默认 Scholar 抓取流程会优先使用 Google Scholar 详情页 DOI，再用 OpenAlex 补 DOI、作者、通讯作者、卷期页码、来源和出版社，最后才对仍缺 DOI 的记录使用 Crossref。
+- 参考文献交互菜单包含 APA、MLA、Chicago、Harvard、LaTeX/BibTeX、AMA/Numeric、GB/T 7714、GB/T 7714-2025 和 All。
+- 默认 Scholar 抓取流程优先使用 Google Scholar 详情页 DOI，再用 OpenAlex 补 DOI、作者、通讯作者、卷期页码、来源和出版社，最后才对仍缺 DOI 的记录使用 Crossref。
 - 用户仍可用 `--no-fetch-doi --no-openalex-enrich --no-fetch-corresponding` 关闭增强，做纯 Google Scholar 快速抓取。
 
 ## 这是什么
@@ -32,6 +42,7 @@ Scholar Impact Scraper 是一个面向 QClaw/OpenClaw、Codex、Claude Code、Cl
 
 它目前包含：
 
+- 简历/模板一键导入：从 `docx/pdf/txt/md` 简历、单位申请模板，或姓名+单位自动识别学者信息、论文线索和填报要求，并生成可阅读、可继续处理的结果。
 - Google Scholar 论文列表和引用数据抓取。
 - OpenAlex 结构化元数据增强，用于补全 DOI、作者列表、通讯作者、期刊/来源、出版社、卷、期和页码。
 - Web of Science 引用数据查询，前提是用户拥有合法访问权限。
@@ -236,6 +247,29 @@ python scholar_playwright.py --user-id <Scholar_ID> --output output.csv --output
 ```
 
 `--output-sort` 支持 `citations`、`publication-date`、`year` 和 `none`。默认仍为 `citations`，即按 Google Scholar 引用数降序；选择 `publication-date` 时，CSV 和参考文献导出都会按最新发表日期优先排序。
+
+## 从简历或模板一键整理
+
+如果用户只有简历、单位申请模板，或只知道姓名和单位，可以先运行一键导入入口。它会读取 `docx/pdf/txt/md`，自动识别姓名、单位、邮箱、ORCID、Google Scholar ID、论文线索和模板里的填报要求，生成本地 JSON/CSV/Markdown 结果。
+
+默认情况下，工具会先停在“请确认”状态，不会直接抓取。用户检查 `final_summary.md` 无误后，再加 `--yes` 继续自动补全。正式抓取前还必须确认年份范围：用 `--all-years` 表示整理全部年份，或用 `--year 2024` / `--year-from 2020 --year-to 2024` 指定年份。
+
+```bash
+python scholar_intake.py --input cv.docx --template job_template.docx --output-dir intake_results
+python scholar_intake.py --input cv.docx --template job_template.docx --output-dir intake_results --yes --all-years
+```
+
+主要输出包括：
+
+```text
+intake_results/intake_profile.json
+intake_results/author_candidates.json
+intake_results/scrape_plan.json
+intake_results/publication_clues.csv
+intake_results/final_summary.md
+```
+
+如果出现多个同名学者，或单位、模板要求、年份范围等关键信息还没识别完整，工具会继续停在确认状态，并在 `author_candidates.json` 和 `final_summary.md` 中提示需要用户补充或确认。对于 Word 简历，摘要中还会列出检测到的加粗、下划线和星号作者片段；对于 PDF，摘要会提醒用户提供 Word 文件或补充作者标记说明。
 
 如果 Web of Science 需要机构登录，先打开本地持久化浏览器：
 
